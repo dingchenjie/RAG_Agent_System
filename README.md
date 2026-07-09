@@ -20,20 +20,20 @@ Python, FastAPI, ChromaDB, ZhipuAI API, Sentence-Transformers (BGE), Scikit-lear
 conda create -n advanced_rag python=3.10
 conda activate advanced_rag
 
-### 2. 安装依赖
+2. 安装依赖
 克隆本仓库并安装所需依赖（推荐使用清华源加速）：
 ```bash
 git clone https://gitee.com/ding-chenjie/advanced_-rag_-system.git
 cd advanced_-rag_-system
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-### 3. 配置环境变量 (安全规范)
+3. 配置环境变量 (安全规范)
 本项目严格遵守企业级安全规范，绝不在代码中硬编码 API Key。 请在项目根目录下手动创建一个 .env 文件，并填入你的智谱 AI API Key：
 ```env
 ZHIPU_API_KEY=your_actual_api_key_here
 (注：获取智谱 API Key 请访问 open.bigmodel.cn)
 
-### 4. 运行系统
+4. 运行系统
 方式一：启动 FastAPI 后端服务 (推荐)
 ```bash
 python main_api.py
