@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# 环境与密钥 (绝对不要上传 API Key)
+.env
+config.py  # 如果里面写了明文Key，建议把Key移到.env，这里先忽略config.py或者手动删掉Key再传
+
+# 本地数据与模型缓存 (这些文件很大，不能传)
+chroma_db/
+*.pdf
+.cache/
+models/
+
+# IDE
+.idea/
+.vscode/
