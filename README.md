@@ -19,6 +19,7 @@ Python, FastAPI, ChromaDB, ZhipuAI API, Sentence-Transformers (BGE), Scikit-lear
 ```bash
 conda create -n advanced_rag python=3.10
 conda activate advanced_rag
+
 2. 安装依赖
 克隆本仓库并安装所需依赖（推荐使用清华源加速）：
 ```bash
