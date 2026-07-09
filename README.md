@@ -13,4 +13,33 @@
 Python, FastAPI, ChromaDB, ZhipuAI API, Sentence-Transformers (BGE), Scikit-learn
 
 ## 📦 快速开始
-(这里写一下如何安装依赖、配置 API Key 和运行 api.py 的简单步骤)
+
+### 1. 环境准备
+确保已安装 Python 3.9 或以上版本。强烈建议使用 Conda 创建独立的虚拟环境以避免依赖冲突：
+```bash
+conda create -n advanced_rag python=3.10
+conda activate advanced_rag
+
+### 2. 安装依赖
+克隆本仓库并安装所需依赖（推荐使用清华源加速）：
+```bash
+git clone https://gitee.com/ding-chenjie/advanced_-rag_-system.git
+cd advanced_-rag_-system
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+### 3. 配置环境变量 (安全规范)
+本项目严格遵守企业级安全规范，绝不在代码中硬编码 API Key。 请在项目根目录下手动创建一个 .env 文件，并填入你的智谱 AI API Key：
+```env
+ZHIPU_API_KEY=your_actual_api_key_here
+(注：获取智谱 API Key 请访问 open.bigmodel.cn)
+
+### 4. 运行系统
+方式一：启动 FastAPI 后端服务 (推荐)
+```bash
+python main_api.py
+服务启动并构建知识库后，打开浏览器访问 http://127.0.0.1:8000/docs 即可使用自动生成的 Swagger UI 进行接口测试。
+
+方式二：运行命令行交互模式
+```bash
+python main_cli.py
+在终端中直接输入问题进行问答测试。
