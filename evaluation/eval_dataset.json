@@ -1,0 +1,82 @@
+[
+  {
+    "question": "LoRA的出发点是什么？",
+    "ground_truth": "LoRA是为了解决大语言模型全量微调成本过高的问题，通过低秩适应来降低存储和计算开销，同时不引入推理延迟。"
+  },
+  {
+    "question": "What form does LoRA decompose the weight update into?",
+    "ground_truth": "LoRA decomposes the weight update into low-rank matrices by freezing the pretrained model weights and injecting trainable rank decomposition matrices into each layer."
+  },
+  {
+    "question": "Is a larger rank r always better for LoRA?",
+    "ground_truth": "No, a larger rank r is not always better. The paper shows that adapting more weight matrices with a very low rank (e.g., r=4) can be more effective than adapting a single type of weights with a larger rank."
+  },
+  {
+    "question": "什么是LoRA？",
+    "ground_truth": "LoRA是一种低秩适应方法，通过冻结预训练模型权重并注入可训练的低秩分解矩阵来实现高效微调。"
+  },
+  {
+    "question": "LoRA有哪些优势？",
+    "ground_truth": "LoRA不引入推理延迟，不减少输入序列长度，允许快速任务切换，并且显著减少存储需求和任务切换开销。"
+  },
+  {
+    "question": "LoRA是如何实现任务切换的？",
+    "ground_truth": "LoRA通过替换不同的低秩矩阵A和B来实现快速任务切换，而不需要加载整个模型的多个副本，只需要替换对应任务的LoRA模块权重即可。"
+  },
+  {
+    "question": "LoRA与全量微调相比，存储方面有什么优势？",
+    "ground_truth": "LoRA将可训练参数量减少了多达10,000倍，存储需求从TB级别降低到MB级别，使得在消费级硬件上管理多个微调模型成为可能。"
+  },
+  {
+    "question": "What is the core idea behind Low-Rank Adaptation?",
+    "ground_truth": "The core idea is that the change in weights during model adaptation also has a low intrinsic rank. By constraining the update to a low-rank decomposition, LoRA drastically reduces the number of trainable parameters."
+  },
+  {
+    "question": "LoRA主要应用在Transformer的哪些权重矩阵上？",
+    "ground_truth": "LoRA主要应用在Transformer的注意力机制中的查询（Wq）和值（Wv）权重矩阵上，冻结其他参数，只训练这两个矩阵的低秩分解。"
+  },
+  {
+    "question": "论文中提到的低秩矩阵的秩r通常设置为多少？",
+    "ground_truth": "论文中提到，即使是r=1或r=4这样非常小的秩，也足以在多个下游任务上取得与全量微调相当甚至更好的性能。"
+  },
+  {
+    "question": "How does LoRA avoid additional inference latency?",
+    "ground_truth": "LoRA avoids additional inference latency by merging the low-rank matrices W = W0 + BA after training, so the model structure remains unchanged during inference."
+  },
+  {
+    "question": "LoRA与Adapter方法相比有什么不同？",
+    "ground_truth": "Adapter方法在模型中插入额外的层，会增加推理延迟；而LoRA通过低秩分解直接修改权重矩阵，训练后可以与原始权重合并，不引入额外计算。"
+  },
+  {
+    "question": "论文中提到的‘intrinsic rank’指的是什么？",
+    "ground_truth": "Intrinsic rank指的是模型在下游任务适应时，权重更新矩阵的有效秩很低。这意味着微调过程中的大部分信息可以被低维子空间捕获。"
+  },
+  {
+    "question": "Why does LoRA choose to adapt both Wq and Wv simultaneously?",
+    "ground_truth": "The paper shows that adapting both Wq and Wv yields the best performance compared to adapting a single type of weight with a higher rank, because it captures more diverse information in the attention mechanism."
+  },
+  {
+    "question": "LoRA的A矩阵和B矩阵是如何初始化的？",
+    "ground_truth": "A矩阵使用随机高斯初始化，B矩阵初始化为零，这样在训练开始时，BA=0，微调从原始预训练权重开始，不会破坏模型初始性能。"
+  },
+  {
+    "question": "论文中LoRA的实验主要涉及哪些任务？",
+    "ground_truth": "论文中的实验覆盖了自然语言理解（NLU）和自然语言生成（NLG）任务，包括GLUE基准测试、E2E NLG挑战赛、以及GPT-3的适配。"
+  },
+  {
+    "question": "LoRA对哪些超参数比较敏感？",
+    "ground_truth": "LoRA对秩r和缩放因子alpha比较敏感。论文指出，调优r和alpha可以平衡性能和参数量，但总体上LoRA对r的选择比较鲁棒。"
+  },
+  {
+    "question": "What is the advantage of sharing the LoRA module across tasks?",
+    "ground_truth": "Sharing a frozen pretrained model across tasks while only switching small LoRA modules enables fast and efficient multi-task serving without duplicating the massive base model."
+  },
+  {
+    "question": "LoRA在GPT-3上的实验中，可训练参数减少了多少？",
+    "ground_truth": "LoRA在GPT-3 175B上微调时，可训练参数数量减少了高达10,000倍，并达到了与全量微调相当的性能。"
+  },
+  {
+    "question": "论文中提到了LoRA的哪些潜在应用场景？",
+    "ground_truth": "论文提到LoRA可用于个性化模型定制、多任务快速切换、以及在隐私敏感或存储受限环境下的高效模型部署。"
+  }
+]

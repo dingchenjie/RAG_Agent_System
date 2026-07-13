@@ -8,7 +8,7 @@ build/
 venv/
 env/
 
-# 环境与密钥 
+# 环境与密钥
 .env
 config.py  
 
