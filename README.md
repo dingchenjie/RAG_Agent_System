@@ -69,10 +69,10 @@ python eval_faithfulness.py
 
 | 指标 | 分数 |
 | :--- | :--- |
-| Faithfulness 平均分 | **0.88** |
+| Faithfulness 平均分 | **0.90** |
 | 满分率（1.0） | 80%（16/20） |
 
-> 说明：2 道得分为 0 的题目触发了系统的“拒答机制”，验证了防幻觉 Prompt 的有效性。
+> 说明：1 道得分为 0 的题目触发了系统的“拒答机制”，验证了防幻觉 Prompt 的有效性。
 
 详细结果见 `evaluation/faithfulness_result.csv`。
 
