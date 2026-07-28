@@ -26,7 +26,7 @@ from ragas.llms import LangchainLLMWrapper
 from langchain_community.chat_models import ChatZhipuAI
 
 # ==================== 配置区 ====================
-PDF_PATH = "lora.pdf"                      # PDF 文件路径
+PDF_PATH = "../lora.pdf"                      # PDF 文件路径
 EVAL_DATASET_PATH = "eval_dataset.json"    # 评测集 JSON 文件
 # ================================================
 
