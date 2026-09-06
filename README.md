@@ -9,6 +9,20 @@
 3. **跨语言检索路由 (Cross-lingual RAG)**：针对中英跨语言 Embedding 对齐不佳的问题，设计 Query Translation 机制，利用 LLM 实时翻译 Query，彻底解决跨语言知识库的检索断层。
 4. **生产级 API 封装**：基于 FastAPI + Uvicorn 构建异步 RESTful API，集成 Swagger UI，具备直接对接前端业务的能力。
 
+## 🤖 Agent 扩展
+
+在 RAG 系统的基础上，我进一步扩展了带工具调用的 Agent 能力，基于 ReAct 模式实现了模型的自主推理与工具调用循环。
+
+- **推理循环**：模型根据用户请求自主决定是否调用工具、调用哪个工具，并基于工具结果继续推理，直到生成最终答案
+- **工具集**：论文检索（复用 RAG 系统）、数学计算、时间查询
+- **工程保障**：设置最大迭代次数防止死循环；工具调用日志记录，支撑后续单步成功率评估
+
+### 运行 Agent
+
+```bash
+python main_agent.py
+```
+
 ## 🛠️ 技术栈
 - **后端框架**：FastAPI, Uvicorn
 - **大模型 API**：ZhipuAI (GLM-4-Flash, Embedding-2)
@@ -67,18 +81,21 @@ python eval_faithfulness.py
 ### 当前评估结果
 在 LoRA 论文的 20 题评测集上：
 
-| 指标 | 分数 |
-| :--- | :--- |
-| Faithfulness 平均分 | **0.88** |
+| 指标 | 分数         |
+| :--- |:-----------|
+| Faithfulness 平均分 | **0.90**    |
 | 满分率（1.0） | 80%（16/20） |
 
-> 说明：2 道得分为 0 的题目触发了系统的“拒答机制”，验证了防幻觉 Prompt 的有效性。
+> 说明：1 道得分为 0 的题目触发了系统的“拒答机制”，验证了防幻觉 Prompt 的有效性。
 
 详细结果见 `evaluation/faithfulness_result.csv`。
 
 ## 📁 项目结构
 
     Advanced_RAG_System/
+    ├── agent/                    # Agent 扩展模块
+    │   ├── tools.py              # 工具定义与执行
+    │   └── agent.py              # ReAct 循环主逻辑
     ├── core/                    # 核心业务逻辑
     │   ├── config.py            # 配置文件
     │   ├── data_pipeline.py     # 数据清洗与向量化入库
@@ -87,6 +104,7 @@ python eval_faithfulness.py
     ├── evaluation/              # 评估模块
     │   ├── eval_dataset.json    # 评测数据集（20题）
     │   └── eval_faithfulness.py # RAGAS 忠实度评估脚本
+    ├── main_agent.py            # Agent 演示入口
     ├── main_api.py              # FastAPI 后端服务入口
     ├── main_cli.py              # 命令行交互入口
     ├── requirements.txt         # 依赖包清单
