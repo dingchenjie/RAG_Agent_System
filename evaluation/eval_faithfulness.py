@@ -27,7 +27,11 @@ from langchain_community.chat_models import ChatZhipuAI
 
 # ==================== 配置区 ====================
 PDF_PATH = "../lora.pdf"                      # PDF 文件路径
+<<<<<<< HEAD
 EVAL_DATASET_PATH = "eval_dataset.json"  # 评测集 JSON 文件
+=======
+EVAL_DATASET_PATH = "eval_dataset.json"    # 评测集 JSON 文件
+>>>>>>> 43b6ad7845b4dfe3a4045aefb3e7d55631734d42
 # ================================================
 
 def load_eval_dataset(path: str) -> List[dict]:
