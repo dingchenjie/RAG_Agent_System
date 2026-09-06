@@ -10,6 +10,7 @@ def ask_llm(original_question: str, context_docs: list) -> str:
     prompt = f"""你是一个学术论文助手。请严格根据以下内容回答问题。
 注意：如果用户用中文提问，请务必用中文回答。如果内容不足，请说"无法回答"。
 
+
 === 检索内容 ===
 {context}
 === 结束 ===

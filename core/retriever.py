@@ -1,4 +1,6 @@
 # 检索、重排与翻译逻辑
+import os
+os.environ['HF_HUB_OFFLINE'] = '1'
 
 from sentence_transformers import CrossEncoder
 from zhipuai import ZhipuAI

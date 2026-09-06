@@ -1,4 +1,6 @@
 # 数据清洗与入库逻辑
+import os
+os.environ['HF_HUB_OFFLINE'] = '1'
 
 from PyPDF2 import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -19,6 +21,7 @@ def load_and_split_pdf(file_path: str):
         chunk_size=config.CHUNK_SIZE,
         chunk_overlap=config.CHUNK_OVERLAP
     )
+
     chunks = splitter.split_text(text)
     print(f"切分完成，共 {len(chunks)} 个文本块")
     return chunks

@@ -1,3 +1,6 @@
+import os
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+os.environ['HF_HUB_OFFLINE'] = '1'
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -17,7 +20,7 @@ class QueryRequest(BaseModel):
     question: str
 
 @app.post("/chat")
-async def chat(request: QueryRequest):
+def chat(request: QueryRequest):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
     try:
