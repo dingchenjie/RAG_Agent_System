@@ -1,0 +1,13 @@
+services:
+  rag-agent:
+    build: .
+    container_name: rag-agent
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./lora.pdf:/app/lora.pdf
+      - C:/Users/DCJ/.cache/huggingface:/root/.cache/huggingface
+      - ./chroma_db_v2:/app/chroma_db # 🌟 新增这行
+    restart: unless-stopped

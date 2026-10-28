@@ -1,55 +1,46 @@
-# 基于高质量数据清洗与重排的进阶 RAG 系统 (Advanced RAG)
+# 基于高质量数据清洗与重排的进阶 RAG 与 Agent 系统 (Advanced RAG & Agent)
 
 ## 🌟 项目简介
-针对传统 RAG 系统在处理长文档时存在的“数据冗余高、检索噪声大、跨语言检索失效”等痛点，从 0 到 1 设计并实现了一套具备数据清洗、两阶段检索与跨语言路由能力的进阶 RAG Pipeline，并完成 FastAPI 工程化落地。
+针对传统 RAG 系统在处理长文档时存在的“数据冗余高、检索噪声大、跨语言检索失效”等痛点，从 0 到 1 设计并实现了一套具备数据清洗、两阶段检索、跨语言路由及 ReAct 工具调用的进阶系统，并完成 **FastAPI 服务化**与 **Docker 容器化**落地。
 
 ## 🚀 核心特性
 1. **入库前数据清洗 (Data-centric AI)**：结合科研期间的“冗余样本筛选”经验，利用本地 Embedding 模型构建相似度矩阵，采用贪心策略剔除高相似度冗余 Chunk（实测数据压缩率达 46.4%），大幅降低存储与推理成本。
 2. **两阶段检索架构 (Coarse-to-Fine Retrieval)**：采用“向量粗排召回 (Top-K) + Cross-Encoder 交叉注意力精排 (Rerank)”架构，显著提升复杂问题的召回准确率。
 3. **跨语言检索路由 (Cross-lingual RAG)**：针对中英跨语言 Embedding 对齐不佳的问题，设计 Query Translation 机制，利用 LLM 实时翻译 Query，彻底解决跨语言知识库的检索断层。
-4. **生产级 API 封装**：基于 FastAPI + Uvicorn 构建异步 RESTful API，集成 Swagger UI，具备直接对接前端业务的能力。
-
-## 🤖 Agent 扩展
-
-在 RAG 系统的基础上，我进一步扩展了带工具调用的 Agent 能力，基于 ReAct 模式实现了模型的自主推理与工具调用循环。
-
-- **推理循环**：模型根据用户请求自主决定是否调用工具、调用哪个工具，并基于工具结果继续推理，直到生成最终答案
-- **工具集**：论文检索（复用 RAG 系统）、数学计算、时间查询
-- **工程保障**：设置最大迭代次数防止死循环；工具调用日志记录，支撑后续单步成功率评估
-
-### 运行 Agent
-
-```bash
-python main_agent.py
-```
+4. **Agent 工具调用扩展**：基于 ReAct 模式实现自主推理与工具调用循环。模型可自主决定调用“论文检索”、“数学计算”或“时间查询”，并支持设置最大迭代次数以防死循环。
+5. **生产级容器化部署**：基于 FastAPI 构建异步 RESTful API；提供 `Dockerfile` 与 `docker-compose.yml`，挂载本地 HuggingFace 缓存实现离线加速，并利用数据卷实现 ChromaDB 向量库的**持久化存储**，避免重启时重复调用 API。
 
 ## 🛠️ 技术栈
-- **后端框架**：FastAPI, Uvicorn
+- **后端框架**：FastAPI, Uvicorn, Docker, Docker Compose
 - **大模型 API**：ZhipuAI (GLM-4-Flash, Embedding-2)
-- **向量数据库**：ChromaDB
+- **向量数据库**：ChromaDB (PersistentClient)
 - **检索与重排**：Sentence-Transformers (BGE-Reranker)
 - **数据处理**：Scikit-learn, Pandas, NumPy
 - **评估框架**：RAGAS
 
 ## 📦 快速开始
 
+### 方式一：使用 Docker 一键部署（推荐）
+确保本地已安装 Docker Desktop，在项目根目录执行：
+```bash
+# 构建并后台启动容器
+docker compose up -d --build
+
+# 查看实时日志（确认知识库构建完成）
+docker compose logs -f
+```
+启动成功后，可通过 http://localhost:8000/docs 测试接口，或通过 http://localhost:8000/chat 发送 POST 请求。
+
+### 方式二：本地 Conda 环境运行
 ### 1. 环境准备
 确保已安装 Python 3.9 或以上版本。强烈建议使用 Conda 创建独立的虚拟环境以避免依赖冲突：
 ```bash
 conda create -n advanced_rag python=3.10
 conda activate advanced_rag
-```
-### 2. 安装依赖
-克隆本仓库并安装所需依赖（推荐使用清华源加速）：
-
-```bash
-git clone https://gitee.com/ding-chenjie/advanced_-rag_-system.git
-cd advanced_-rag_-system
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 ### 3. 配置环境变量 (安全规范)
 本项目严格遵守企业级安全规范，绝不在代码中硬编码 API Key。请在项目根目录下手动创建一个 .env 文件，并填入你的智谱 AI API Key：
-
 ```env
 ZHIPU_API_KEY=your_actual_api_key_here
 ```
@@ -93,20 +84,22 @@ python eval_faithfulness.py
 ## 📁 项目结构
 
     Advanced_RAG_System/
-    ├── agent/                    # Agent 扩展模块
-    │   ├── tools.py              # 工具定义与执行
-    │   └── agent.py              # ReAct 循环主逻辑
-    ├── core/                    # 核心业务逻辑
-    │   ├── config.py            # 配置文件
-    │   ├── data_pipeline.py     # 数据清洗与向量化入库
-    │   ├── retriever.py         # 检索、重排与跨语言翻译
-    │   └── llm_service.py       # 大模型调用与生成
-    ├── evaluation/              # 评估模块
-    │   ├── eval_dataset.json    # 评测数据集（20题）
-    │   └── eval_faithfulness.py # RAGAS 忠实度评估脚本
-    ├── main_agent.py            # Agent 演示入口
-    ├── main_api.py              # FastAPI 后端服务入口
-    ├── main_cli.py              # 命令行交互入口
-    ├── requirements.txt         # 依赖包清单
-    ├── .gitignore               # Git 忽略规则
-    └── README.md                # 项目说明文档
+    ├── agent/                        # Agent 扩展模块
+    │   ├── tools.py                  # 工具定义与执行
+    │   └── agent.py                  # ReAct 循环主逻辑
+    ├── core/                         # 核心业务逻辑
+    │   ├── config.py                 # 配置文件
+    │   ├── data_pipeline.py          # 数据清洗与向量化入库
+    │   ├── retriever.py              # 检索、重排与跨语言翻译
+    │   └── llm_service.py            # 大模型调用与生成
+    ├── evaluation/                   # 评估模块
+    │   ├── eval_dataset.json         # 评测数据集（20题）
+    │   └── eval_faithfulness.py      # RAGAS 忠实度评估脚本
+    ├── main_agent.py                 # Agent 演示入口
+    ├── main_api.py                   # FastAPI 后端服务入口
+    ├── main_cli.py                   # 命令行交互入口
+    ├── Dockerfile                    # Docker 镜像构建文件
+    ├── docker-compose.yml            # Docker 容器编排与数据卷配置
+    ├── requirements.txt              # 依赖包清单
+    ├── .gitignore                    # Git 忽略规则
+    └── README.md                     # 项目说明文档

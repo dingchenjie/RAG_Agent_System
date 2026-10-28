@@ -44,19 +44,47 @@ def filter_redundant_chunks(chunks: list):
 
 
 def build_vector_db(chunks: list):
-    print("正在向量化并存入 ChromaDB...")
+    print("正在初始化向量数据库...")
     client = ZhipuAI(api_key=config.ZHIPU_API_KEY)
-    chroma_client = chromadb.Client(Settings(anonymized_telemetry=False))
 
+    # 🌟 关键修改 1：使用 PersistentClient，把数据存到本地 ./chroma_db 文件夹里
+    chroma_client = chromadb.PersistentClient(path="./chroma_db")
+
+    # 🌟 关键修改 2：判断集合是否已经存在。如果存在，直接加载，跳过 API 调用！
     try:
-        chroma_client.delete_collection("rag_knowledge")
-    except:
+        collection = chroma_client.get_collection(name="rag_knowledge")
+        print(f"✅ 检测到本地已有向量数据库，直接加载，共 {collection.count()} 条记录。跳过 API 调用！")
+        return collection
+    except Exception:
+        # 如果不存在，说明是第一次运行，再走建库流程
         pass
+
+    print("首次运行，正在调用 API 向量化文本块并存入 ChromaDB...")
     collection = chroma_client.create_collection(name="rag_knowledge")
 
     for i, chunk in enumerate(chunks):
         vec = client.embeddings.create(model=config.EMBEDDING_API_MODEL, input=chunk).data[0].embedding
         collection.add(embeddings=[vec], documents=[chunk], ids=[f"chunk_{i}"])
+        if (i + 1) % 20 == 0:
+            print(f"已处理 {i + 1}/{len(chunks)} 个文本块...")
 
     print(f"向量数据库构建完成，共 {collection.count()} 条记录")
     return collection
+
+# def build_vector_db(chunks: list):
+#     print("正在向量化并存入 ChromaDB...")
+#     client = ZhipuAI(api_key=config.ZHIPU_API_KEY)
+#     chroma_client = chromadb.Client(Settings(anonymized_telemetry=False))
+#
+#     try:
+#         chroma_client.delete_collection("rag_knowledge")
+#     except:
+#         pass
+#     collection = chroma_client.create_collection(name="rag_knowledge")
+#
+#     for i, chunk in enumerate(chunks):
+#         vec = client.embeddings.create(model=config.EMBEDDING_API_MODEL, input=chunk).data[0].embedding
+#         collection.add(embeddings=[vec], documents=[chunk], ids=[f"chunk_{i}"])
+#
+#     print(f"向量数据库构建完成，共 {collection.count()} 条记录")
+#     return collection

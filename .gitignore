@@ -8,15 +8,19 @@ build/
 venv/
 env/
 
-# 环境与密钥
+# 环境与密钥 (防止 API Key 泄露)
 .env
-config.py  
+config.py
 
-# 本地数据与模型缓存 
+# 本地数据与模型缓存 (防止上传大文件和数据库)
 chroma_db/
+chroma_db_v2/
 *.pdf
 .cache/
 models/
+
+# 日志文件
+*.log
 
 # IDE
 .idea/
