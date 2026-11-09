@@ -1,32 +1,26 @@
 """
-ReAct Agent 主循环
+ReAct Agent 主循环（Provider 解耦版）
 推理 → 调用工具 → 观察结果 → 继续推理 → 最终回答
 """
-import json
 from typing import List, Dict, Any
-from zhipuai import ZhipuAI
 from .tools import TOOLS_SCHEMA, get_tool_executor
+from .providers import create_provider, BaseLLMProvider, LLMResponse
 from core import config
 
 MAX_ITERATIONS = 8  # 最大迭代次数，防止死循环
 
 
 class Agent:
-    def __init__(self, collection):
-        self.client = ZhipuAI(api_key=config.ZHIPU_API_KEY)
+    def __init__(self, collection, provider_name: str = "zhipu"):
+        # 依赖注入：Agent 核心不直接实例化大模型 SDK，而是通过工厂获取 Provider
+        self.provider: BaseLLMProvider = create_provider(
+            provider_name=provider_name,
+            api_key=config.ZHIPU_API_KEY,
+            model=config.LLM_MODEL_NAME
+        )
         self.collection = collection
         self.messages: List[Dict[str, Any]] = []
         self.tool_calls_log: List[Dict] = []  # 记录每步调用，用于评估单步成功率
-
-    def _call_llm(self):
-        """调用大模型，返回响应对象"""
-        return self.client.chat.completions.create(
-            model=config.LLM_MODEL_NAME,
-            messages=self.messages,
-            tools=TOOLS_SCHEMA,
-            tool_choice="auto",
-            temperature=0.1
-        )
 
     def _execute_tool(self, tool_name: str, arguments: dict) -> str:
         """执行工具并返回结果"""
@@ -60,17 +54,17 @@ class Agent:
         for iteration in range(MAX_ITERATIONS):
             print(f"\n--- Iteration {iteration + 1} ---")
 
-            response = self._call_llm()
-            message = response.choices[0].message
+            # 统一调用 Provider 接口，获取标准化的响应
+            response: LLMResponse = self.provider.chat(self.messages, TOOLS_SCHEMA)
 
             # 3. 如果模型直接输出文本（没有工具调用），返回答案
-            if not message.tool_calls:
-                return message.content
+            if not response.tool_calls:
+                return response.content or ""
 
             # 4. 处理工具调用
-            for tool_call in message.tool_calls:
-                tool_name = tool_call.function.name
-                arguments = json.loads(tool_call.function.arguments)
+            for tool_call in response.tool_calls:
+                tool_name = tool_call.name
+                arguments = tool_call.arguments
 
                 print(f"模型决策：调用工具 {tool_name}，参数 {arguments}")
 
@@ -91,34 +85,14 @@ class Agent:
 
                 print(f"工具结果：{result[:80]}...")
 
-                # 5. 把工具结果拼回上下文
-                # 注意：智谱 API 返回的 message 是 Pydantic 对象，需要转成字典
-                assistant_message = {
-                    "role": "assistant",
-                    "content": message.content,
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments
-                            }
-                        }
-                        for tc in message.tool_calls
-                    ]
-                }
-                self.messages.append(assistant_message)
-                self.messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": result
-                })
+                # 5. 把工具结果拼回上下文（通过 Provider 转换为各家格式）
+                self.messages.append(self.provider.format_assistant_message(response))
+                self.messages.append(self.provider.format_tool_result(tool_call.id, result))
 
         # 6. 达到最大迭代次数仍未完成
         return "抱歉，处理时间过长，请简化您的问题后再试。"
 
 
-def create_agent(collection) -> Agent:
+def create_agent(collection, provider_name: str = "zhipu") -> Agent:
     """工厂函数：创建 Agent 实例"""
-    return Agent(collection)
+    return Agent(collection, provider_name=provider_name)
