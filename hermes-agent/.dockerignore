@@ -1,0 +1,22 @@
+# 构建上下文瘦身：镜像里只保留运行必需的文件
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+data
+*.db
+*.db-wal
+*.db-shm
+docs
+tests
+eval/reports
+.env
+.env.*
+.idea
+.vscode
+.trae
