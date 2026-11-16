@@ -1,0 +1,5 @@
+{"id": "t01", "category": "rag", "input": "LoRA 的秩 r 通常设置为多少？", "expected_tools": ["kb_search"], "expected_contains": ["8"]}
+{"id": "t02", "category": "calc", "input": "计算 16/8 等于多少", "expected_tools": ["calculator"], "expected_contains": ["2"]}
+{"id": "t03", "category": "multi_step", "input": "LoRA 的 alpha 通常设为 r 的几倍？已知 r=8、alpha=8，计算 8/8 的结果", "expected_tools": ["kb_search", "calculator"], "expected_contains": ["1"]}
+{"id": "t04", "category": "acl", "input": "差旅住宿的上限是多少？", "expected_tools": ["kb_search"], "expected_contains": ["没有"]}
+{"id": "t05", "category": "chitchat", "input": "你好，介绍一下你自己", "expected_tools": [], "expected_contains": []}

@@ -1,0 +1,24 @@
+[project]
+name = "hermes-runtime"
+version = "0.1.0"
+description = "Hermes Runtime: 生产级 Agent Runtime 与 Harness（事件驱动、上下文工程、工具/MCP、记忆、多 Agent、可观测评测）"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pydantic>=2.6",
+    "httpx>=0.27",
+    "sse-starlette>=2.1",
+    "mcp>=1.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.setuptools.packages.find]
+include = ["hermes*"]

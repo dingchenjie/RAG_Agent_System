@@ -1,105 +1,39 @@
-# 基于高质量数据清洗与重排的进阶 RAG 与 Agent 系统 (Advanced RAG & Agent)
+# Hermes Agent —— AI Agent 岗敲门砖项目
 
-## 🌟 项目简介
-针对传统 RAG 系统在处理长文档时存在的“数据冗余高、检索噪声大、跨语言检索失效”等痛点，从 0 到 1 设计并实现了一套具备数据清洗、两阶段检索、跨语言路由及 ReAct 工具调用的进阶系统，并完成 **FastAPI 服务化**与 **Docker 容器化**落地。
+本仓库现在只有一个主项目：[`hermes-agent/`](hermes-agent/)。
 
-## 🚀 核心特性
-1. **入库前数据清洗 (Data-centric AI)**：结合科研期间的“冗余样本筛选”经验，利用本地 Embedding 模型构建相似度矩阵，采用贪心策略剔除高相似度冗余 Chunk（实测数据压缩率达 46.4%），大幅降低存储与推理成本。
-2. **两阶段检索架构 (Coarse-to-Fine Retrieval)**：采用“向量粗排召回 (Top-K) + Cross-Encoder 交叉注意力精排 (Rerank)”架构，显著提升复杂问题的召回准确率。
-3. **跨语言检索路由 (Cross-lingual RAG)**：针对中英跨语言 Embedding 对齐不佳的问题，设计 Query Translation 机制，利用 LLM 实时翻译 Query，彻底解决跨语言知识库的检索断层。
-4. **Agent 工具调用扩展**：基于 ReAct 模式实现自主推理与工具调用循环。模型可自主决定调用“论文检索”、“数学计算”或“时间查询”，并支持设置最大迭代次数以防死循环。
-5. **生产级容器化部署**：基于 FastAPI 构建异步 RESTful API；提供 `Dockerfile` 与 `docker-compose.yml`，挂载本地 HuggingFace 缓存实现离线加速，并利用数据卷实现 ChromaDB 向量库的**持久化存储**，避免重启时重复调用 API。
-
-## 🛠️ 技术栈
-- **后端框架**：FastAPI, Uvicorn, Docker, Docker Compose
-- **大模型 API**：ZhipuAI (GLM-4-Flash, Embedding-2)
-- **向量数据库**：ChromaDB (PersistentClient)
-- **检索与重排**：Sentence-Transformers (BGE-Reranker)
-- **数据处理**：Scikit-learn, Pandas, NumPy
-- **评估框架**：RAGAS
-
-## 📦 快速开始
-
-### 方式一：使用 Docker 一键部署（推荐）
-确保本地已安装 Docker Desktop，在项目根目录执行：
-```bash
-# 构建并后台启动容器
-docker compose up -d --build
-
-# 查看实时日志（确认知识库构建完成）
-docker compose logs -f
-```
-启动成功后，可通过 http://localhost:8000/docs 测试接口，或通过 http://localhost:8000/chat 发送 POST 请求。
-
-### 方式二：本地 Conda 环境运行
-### 1. 环境准备
-确保已安装 Python 3.9 或以上版本。强烈建议使用 Conda 创建独立的虚拟环境以避免依赖冲突：
-```bash
-conda create -n advanced_rag python=3.10
-conda activate advanced_rag
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-```
-### 3. 配置环境变量 (安全规范)
-本项目严格遵守企业级安全规范，绝不在代码中硬编码 API Key。请在项目根目录下手动创建一个 .env 文件，并填入你的智谱 AI API Key：
-```env
-ZHIPU_API_KEY=your_actual_api_key_here
-```
-注：获取智谱 API Key 请访问 open.bigmodel.cn
-
-### 4. 运行系统
-方式一：启动 FastAPI 后端服务 (推荐)
+一个**可观测、可恢复、可评测**的 Agent 工程，覆盖 Agent Runtime、上下文工程、工具与 MCP、
+RAG 知识层（PDF/HTML/DOCX/MD）、长期记忆、多 Agent 主从调度、权限沙箱、评测与部署。
+默认离线可跑：`pip install -e .` 后 30 秒内 `pytest` 全绿；语义模型作为可选 extra 自动启用或降级。
 
 ```bash
-python main_api.py
+cd hermes-agent
+pip install -e ".[dev]"
+python -m pytest                          # 66 项测试，全离线
+hermes ask "LoRA 的秩 r 通常设置为多少？"   # 自动入库种子知识库，打印答案 + 工具轨迹
+hermes eval --fail-under 0.99             # 离线评测门禁（含忠实度）
+hermes serve --port 8000                  # HTTP + SSE
 ```
-服务启动并构建知识库后，打开浏览器访问 http://127.0.0.1:8000/docs 即可使用自动生成的 Swagger UI 进行接口测试。
 
-方式二：运行命令行交互模式
+详细说明见 [hermes-agent/README.md](hermes-agent/README.md)，
+架构图与时序见 [hermes-agent/docs/ARCHITECTURE.md](hermes-agent/docs/ARCHITECTURE.md)。
 
-```bash
-python main_cli.py
+## 演进过程
+
+| 版本 | 位置 | 内容 |
+| --- | --- | --- |
+| v1 | [`archive/rag-agent-v1/`](archive/rag-agent-v1/) | 纯 RAG Agent：ReAct + `if/elif` 工具 + Chroma + 交叉重排 + RAGAS 单指标 |
+| v2 | [`archive/hermes-runtime-v2/`](archive/hermes-runtime-v2/) | Agent Runtime：上下文工程 / 工具九道关 / 记忆 / 多 Agent / 评测 / 可观测 |
+| v3 | [`hermes-agent/`](hermes-agent/) | 合并版：v2 运行时骨架 + v1 真实文档链路，唯一对外项目 |
+
+为什么这样演进、每一版丢了什么留下什么，见 [archive/README.md](archive/README.md)。
+
+## 目录
+
 ```
-在终端中直接输入问题进行问答测试。
-
-## 📊 量化评估
-项目内置 RAGAS 评估脚本，用于检测系统回答的忠实度（Faithfulness），评估模型是否基于检索到的原文而非自行编造。
-
-### 运行评估
-```bash
-cd evaluation
-python eval_faithfulness.py
+hermes-agent/     主项目（唯一对外演示入口）
+archive/          历史版本留档（只读，不参与演示）
+LICENSE
 ```
-### 当前评估结果
-在 LoRA 论文的 20 题评测集上：
 
-| 指标 | 分数         |
-| :--- |:-----------|
-| Faithfulness 平均分 | **0.90**    |
-| 满分率（1.0） | 80%（16/20） |
-
-> 说明：1 道得分为 0 的题目触发了系统的“拒答机制”，验证了防幻觉 Prompt 的有效性。
-
-详细结果见 `evaluation/faithfulness_result.csv`。
-
-## 📁 项目结构
-
-    Advanced_RAG_System/
-    ├── agent/                        # Agent 扩展模块
-    │   ├── tools.py                  # 工具定义与执行
-    │   └── agent.py                  # ReAct 循环主逻辑
-    ├── core/                         # 核心业务逻辑
-    │   ├── config.py                 # 配置文件
-    │   ├── data_pipeline.py          # 数据清洗与向量化入库
-    │   ├── retriever.py              # 检索、重排与跨语言翻译
-    │   └── llm_service.py            # 大模型调用与生成
-    ├── evaluation/                   # 评估模块
-    │   ├── eval_dataset.json         # 评测数据集（20题）
-    │   └── eval_faithfulness.py      # RAGAS 忠实度评估脚本
-    ├── main_agent.py                 # Agent 演示入口
-    ├── main_api.py                   # FastAPI 后端服务入口
-    ├── main_cli.py                   # 命令行交互入口
-    ├── Dockerfile                    # Docker 镜像构建文件
-    ├── docker-compose.yml            # Docker 容器编排与数据卷配置
-    ├── requirements.txt              # 依赖包清单
-    ├── .gitignore                    # Git 忽略规则
-    └── README.md                     # 项目说明文档
+> 旧版运行所需的 `core/config.py`、API Key 与 Chroma 目录不入库，`archive/` 仅作代码演进证据。

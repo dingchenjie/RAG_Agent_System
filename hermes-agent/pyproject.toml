@@ -1,0 +1,38 @@
+[project]
+name = "hermes-agent"
+version = "0.2.0"
+description = "Hermes Agent：Agent Runtime + RAG 知识层 + 工具/MCP + 长期记忆 + 多 Agent + 可观测评测，默认离线可跑"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pydantic>=2.6",
+    "httpx>=0.27",
+    "sse-starlette>=2.1",
+    "mcp>=1.2",
+    "pypdf>=4.0",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+# 语义能力：bge embedding + cross-encoder 重排（不装则自动降级为哈希向量 / RRF 重排）
+semantic = [
+    "sentence-transformers>=3.0",
+    "torch>=2.1",
+]
+# RAGAS 忠实度（可选，不装则用离线引用支撑度）
+ragas = ["ragas>=0.1"]
+# 直接用官方 SDK（项目内部走 httpx，兼容 OpenAI 协议）
+api = ["zhipuai>=2.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+hermes = "hermes.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.setuptools.packages.find]
+include = ["hermes*"]

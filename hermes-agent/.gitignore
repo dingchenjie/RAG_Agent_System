@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+data/
+*.db
+*.db-wal
+*.db-shm
+.pytest_cache/
+eval/reports/
+# 面试话术不进公开仓库
+docs/INTERVIEW_QA.md
+data/uploads/

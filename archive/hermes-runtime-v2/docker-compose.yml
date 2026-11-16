@@ -1,0 +1,20 @@
+services:
+  hermes:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      HERMES_LLM_PROVIDER: ${HERMES_LLM_PROVIDER:-mock}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
+      HERMES_DB_PATH: /data/hermes.db
+      HERMES_MAX_CONCURRENCY: "4"
+    volumes:
+      - hermes-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  hermes-data:
