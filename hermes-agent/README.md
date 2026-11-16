@@ -248,6 +248,18 @@ docker compose up --build          # http://localhost:8000/docs
 docker build --build-arg INSTALL_EXTRAS="semantic" -t hermes-agent:semantic .
 ```
 
+本机实测（Docker 29.9.2 / python:3.12-slim）：
+
+| 检查项 | 结果 |
+| --- | --- |
+| `docker build -t hermes-agent:0.2.0 .` | 成功，镜像 268 MB |
+| `docker compose config` | 通过（无语法/插值错误） |
+| 容器内 `GET /healthz` | 200，`embedding=hashing/384`、`rerank=rrf`、`llm=mock` |
+| `POST /v1/runs` → 轮询状态 | `queued → succeeded`，trace 落 23 条事件 |
+| 数据卷 | `/data` 挂 `hermes_data`，SQLite 与上传目录都在卷内，重建容器不丢 |
+
+注意：`/v1/runs/{id}/events` 是 SSE 长连接，用 `curl -N` 或浏览器看，`curl` 默认会一直挂着不返回。
+
 ## 10. 面试材料
 
 60+ 道问答、按 JD 七条职责逐条拆解、边界问题（OpenManus / 自进化 / 分布式 / 沙箱）的标准答法，见 `docs/INTERVIEW_QA.md`（本地保留，不纳入公开仓库）。
