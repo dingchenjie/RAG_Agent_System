@@ -1,0 +1,37 @@
+[
+  {
+    "name": "ticket_lookup",
+    "kind": "http",
+    "version": "1.0",
+    "description": "按工单号查询业务系统里的工单状态。返回 JSON，调用前需要工单号。",
+    "method": "GET",
+    "url": "https://api.example.com/v1/tickets/{ticket_id}",
+    "allowed_hosts": ["api.example.com"],
+    "headers": {
+      "Authorization": "Bearer ${TICKET_API_TOKEN}"
+    },
+    "args_schema": {
+      "type": "object",
+      "properties": {
+        "ticket_id": {"type": "string", "description": "工单号，例如 T-2026-001"}
+      },
+      "required": ["ticket_id"]
+    },
+    "query": ["ticket_id"],
+    "scopes": ["tool:read"],
+    "timeout_s": 8,
+    "idempotent": true
+  },
+  {
+    "name": "repo_status",
+    "kind": "cli",
+    "version": "1.0",
+    "description": "查看当前代码仓库的改动摘要（只读）。",
+    "command": ["git", "status", "--porcelain"],
+    "cwd": ".",
+    "args": [],
+    "scopes": ["tool:read"],
+    "timeout_s": 10,
+    "idempotent": true
+  }
+]

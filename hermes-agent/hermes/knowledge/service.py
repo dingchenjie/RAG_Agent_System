@@ -86,13 +86,27 @@ class KnowledgeService:
 
     # ---------- 检索 ----------
     def search(self, query: str, *, top_k: int | None = None,
-               acl_groups: set[str] | None = None) -> list[Hit]:
+               acl_groups: set[str] | None = None,
+               min_coverage: float | None = None,
+               min_vector: float | None = None) -> list[Hit]:
         top_k = top_k or self.default_top_k
-        hits = self.index.search(query, top_k=max(top_k, self.default_top_k), acl_groups=acl_groups)
+        gate: dict[str, float] = {}
+        if min_coverage is not None:
+            gate["min_coverage"] = min_coverage
+        if min_vector is not None:
+            gate["min_vector"] = min_vector
+        hits = self.index.search(query, top_k=max(top_k, self.default_top_k),
+                                 acl_groups=acl_groups, **gate)
         return self.reranker.rerank(query, hits, top_k)
 
     def documents(self) -> list[dict]:
         return self.index.documents()
+
+    def versions(self, doc_id: str) -> list[dict]:
+        return self.index.versions(doc_id)
+
+    def activate_version(self, doc_id: str, version: str) -> bool:
+        return self.index.activate(doc_id, version)
 
     # ---------- 渲染 ----------
     @staticmethod

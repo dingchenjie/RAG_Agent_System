@@ -120,6 +120,30 @@ def _ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _kb(args: argparse.Namespace) -> int:
+    """查看文档历史版本，或把某个历史版本切回线上。"""
+    state = build_state(Settings.from_env())
+    try:
+        if args.activate:
+            ok = state.knowledge.activate_version(args.doc_id, args.activate)
+            if not ok:
+                print(f"版本不存在: {args.doc_id} v{args.activate}")
+                return 1
+            print(f"已切换到: {args.doc_id} v{args.activate}")
+            return 0
+        items = state.knowledge.versions(args.doc_id)
+        if not items:
+            print(f"文档不存在或没有版本: {args.doc_id}")
+            return 1
+        for item in items:
+            flag = "active" if item["active"] else "      "
+            print(f"v{item['version']:<8} [{flag}] chunks={item['chunks']:<4} "
+                  f"title={item['title'] or '-'}")
+        return 0
+    finally:
+        state.db.close()
+
+
 def _serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -262,6 +286,10 @@ def build_parser() -> argparse.ArgumentParser:
     triggers.add_argument("--disable", default=None, metavar="TRIGGER_ID")
     triggers.add_argument("--delete", default=None, metavar="TRIGGER_ID")
 
+    kb = sub.add_parser("kb", help="查看知识文档的历史版本，或回滚到指定版本")
+    kb.add_argument("doc_id")
+    kb.add_argument("--activate", default=None, metavar="VERSION")
+
     return parser
 
 
@@ -291,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
         return _replay(args)
     if args.command == "triggers":
         return _triggers(args)
+    if args.command == "kb":
+        return _kb(args)
     return 2
 
 

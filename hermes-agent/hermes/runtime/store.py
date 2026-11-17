@@ -190,3 +190,33 @@ class RunStore:
         else:
             rows = self.db.query("SELECT * FROM runs ORDER BY created_at DESC LIMIT ?", (limit,))
         return [dict(r) for r in rows]
+
+    def usage_summary(self, *, tenant_id: str, since: float) -> dict:
+        """按租户聚合窗口内的 run 数、token 与成本；直接读 runs.usage，不新增事实源。"""
+        rows = self.db.query(
+            "SELECT state, COUNT(*) AS runs, "
+            " COALESCE(SUM(json_extract(usage, '$.total.prompt_tokens')), 0) AS prompt_tokens, "
+            " COALESCE(SUM(json_extract(usage, '$.total.completion_tokens')), 0) AS completion_tokens, "
+            " COALESCE(SUM(json_extract(usage, '$.total.cost_usd')), 0) AS cost_usd "
+            "FROM runs WHERE tenant_id=? AND created_at>=? GROUP BY state",
+            (tenant_id, since),
+        )
+        by_state = {
+            row["state"]: {
+                "runs": int(row["runs"]),
+                "total_tokens": int(row["prompt_tokens"] or 0) + int(row["completion_tokens"] or 0),
+                "cost_usd": round(float(row["cost_usd"] or 0.0), 6),
+            }
+            for row in rows
+        }
+        prompt_tokens = sum(int(row["prompt_tokens"] or 0) for row in rows)
+        completion_tokens = sum(int(row["completion_tokens"] or 0) for row in rows)
+        return {
+            "tenant_id": tenant_id,
+            "runs": sum(item["runs"] for item in by_state.values()),
+            "by_state": by_state,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+            "cost_usd": round(sum(float(row["cost_usd"] or 0.0) for row in rows), 6),
+        }

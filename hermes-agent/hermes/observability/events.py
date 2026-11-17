@@ -145,6 +145,21 @@ class EventStore:
         )
         return [Event.from_row(r) for r in rows]
 
+    def prune(self, *, before_ts: float) -> int:
+        """清理已结束 run 的过期中间事件，保留终态事件（引用与工具轨迹仍在 payload 里）。
+
+        只动 ``before_ts`` 之前就已结束的 run，运行中的 run 不受影响；``runs`` 行本身
+        是摘要，不在这里删除。
+        """
+        terminal = ("run.created", "run.completed", "run.failed", "run.cancelled")
+        cursor = self.db.execute(
+            "DELETE FROM events WHERE type NOT IN (?, ?, ?, ?) AND run_id IN ("
+            " SELECT id FROM runs WHERE state IN ('succeeded','failed','cancelled','interrupted')"
+            " AND updated_at < ?)",
+            (*terminal, before_ts),
+        )
+        return cursor.rowcount or 0
+
 
 class EventBus:
     """进程内发布订阅 + 落库 + 环形缓冲（SSE 重放用）。"""

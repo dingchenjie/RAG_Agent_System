@@ -1,0 +1,15 @@
+{"id":"r01","category":"synonym","input":"LoRA 的秩 r 通常取多少","gold":[{"doc_id":"lora_notes","contains":"最常用的取值是 8 或 16"}]}
+{"id":"r02","category":"paraphrase","input":"低秩瓶颈的宽度一般设多大","gold":[{"doc_id":"lora_notes","contains":"秩 r：控制低秩瓶颈的宽度"}]}
+{"id":"r03","category":"paraphrase","input":"alpha 和 r 的比例怎么设置","gold":[{"doc_id":"lora_notes","contains":"alpha 取 8 或 16"}]}
+{"id":"r04","category":"synonym","input":"QLoRA 怎么降低显存占用","gold":[{"doc_id":"lora_notes","contains":"4bit 量化"}]}
+{"id":"r05","category":"reasoning","input":"LoRA 的秩越大越好吗","gold":[{"doc_id":"lora_notes","contains":"过大的 r 更容易过拟合"}]}
+{"id":"r06","category":"hard_negative","input":"一线城市住宿报销上限是多少","scopes":["tool:read","kb:group:finance"],"gold":[{"doc_id":"finance_policy","contains":"一线城市住宿上限为每晚 600 元"}]}
+{"id":"r07","category":"hard_negative","input":"二线城市的住宿标准是多少","scopes":["tool:read","kb:group:finance"],"gold":[{"doc_id":"finance_policy","contains":"二线城市为每晚 450 元"}]}
+{"id":"r08","category":"acl","input":"报销单要在多久内提交","scopes":["tool:read","kb:group:finance"],"gold":[{"doc_id":"finance_policy","contains":"10 个工作日内提交报销单"}]}
+{"id":"r09","category":"acl","input":"发票抬头有什么要求","scopes":["tool:read","kb:group:finance"],"gold":[{"doc_id":"finance_policy","contains":"抬头必须与公司主体一致"}]}
+{"id":"r10","category":"hard_negative","input":"Alpha 服务默认超时多少秒","gold":[{"doc_id":"alpha_service","contains":"默认超时 30 秒"}]}
+{"id":"r11","category":"hard_negative","input":"Beta 服务最多重试几次","gold":[{"doc_id":"beta_service","contains":"最大重试 3 次"}]}
+{"id":"r12","category":"synonym","input":"灰度发布第一次切多少流量","gold":[{"doc_id":"deploy_notes","contains":"先切 5% 流量"}]}
+{"id":"r13","category":"security","input":"生产环境可以用 root 账号运行服务吗","gold":[{"doc_id":"security_policy","contains":"禁止使用 root 账号"}]}
+{"id":"r14","category":"out_of_domain","input":"Zephyr 引擎的 turbine 温度阈值是多少","expect_empty":true}
+{"id":"r15","category":"out_of_domain","input":"请推荐几部科幻电影","expect_empty":true}

@@ -235,3 +235,54 @@ def test_memory_subject_association(client):
         "subject_type": "customer", "subject_id": "c_002",
     }).json()["items"]
     assert other == []
+
+
+def test_run_detail_links_citations_and_tools(client):
+    created = client.post("/v1/runs", json={"input": "LoRA 的秩 r 通常设置为多少？"}).json()
+    body = _wait(client, created["run_id"])
+    assert body["state"] == "succeeded"
+
+    assert body["citations"], "终态应携带引用，回答才能追溯到文档"
+    assert body["citations"][0]["doc_id"] == "lora_notes"
+
+    tools = {item["tool"]: item for item in body["tool_calls"]}
+    assert tools["kb_search"]["version"] == "1.1"
+    assert tools["kb_search"]["ok"] is True
+
+
+def test_run_detail_without_terminal_event_has_empty_artifacts(client):
+    state = client.app.state.hermes
+    session = state.sessions.create_session(tenant_id="default", user_id="anonymous", title="排队中")
+    state.runs.create_run(session_id=session.id, tenant_id="default", user_id="anonymous",
+                          user_input="排队中", run_id="run_queued_test")
+
+    body = client.get("/v1/runs/run_queued_test").json()
+    assert body["citations"] == []
+    assert body["tool_calls"] == []
+
+
+def test_knowledge_versions_and_rollback(client):
+    for version, text in (("1", "旧版：差旅报销上限 500 元。"), ("2", "新版：差旅报销上限 800 元。")):
+        resp = client.post("/v1/knowledge/documents", json={
+            "doc_id": "policy", "version": version, "title": f"差旅制度 {version}", "text": text,
+        })
+        assert resp.status_code == 200
+
+    items = client.get("/v1/knowledge/documents/policy/versions").json()["items"]
+    assert [item["version"] for item in items] == ["2", "1"]
+    assert items[0]["active"] is True and items[1]["active"] is False
+    assert items[0]["chunks"] >= 1
+
+    hit = client.get("/v1/knowledge/search", params={"q": "差旅报销上限"}).json()["hits"][0]
+    assert "800" in hit["text"]
+
+    resp = client.post("/v1/knowledge/documents/policy/versions/1/activate")
+    assert resp.status_code == 200
+    hit = client.get("/v1/knowledge/search", params={"q": "差旅报销上限"}).json()["hits"][0]
+    assert "500" in hit["text"]
+
+    items = client.get("/v1/knowledge/documents/policy/versions").json()["items"]
+    assert {item["version"]: item["active"] for item in items} == {"1": True, "2": False}
+
+    assert client.get("/v1/knowledge/documents/nope/versions").status_code == 404
+    assert client.post("/v1/knowledge/documents/policy/versions/9/activate").status_code == 404

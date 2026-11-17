@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
@@ -44,6 +45,7 @@ from ..runtime.store import RunStore, SessionStore
 from ..security.auth import Principal, resolve_principal
 from ..storage.db import Database
 from ..tools.builtin import build_default_tools
+from ..tools.connectors import register_connectors
 from ..tools.registry import ToolRegistry
 from ..tools.sandbox import SandboxRunner
 from ..triggers import Trigger, TriggerService
@@ -68,6 +70,50 @@ def _as_seq(raw: str | None) -> int:
         return max(0, int(raw or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _prune_events(state: AppState) -> int:
+    """按保留天数清理过期中间事件；配置为 0 时关闭。"""
+    days = state.settings.event_retention_days
+    if days <= 0:
+        return 0
+    deleted = state.event_store.prune(before_ts=time.time() - days * 86400)
+    if deleted:
+        logger.info("事件保留策略：清理 %s 条过期中间事件（终态事件保留）", deleted)
+    return deleted
+
+
+def _parse_window(raw: str) -> float:
+    """把 ``24h`` / ``7d`` / ``30m`` 解析成秒；非法值直接 422，不做猜测。"""
+    match = re.fullmatch(r"(\d+)([mhd])", (raw or "").strip().lower())
+    if not match:
+        raise ApiError("window 需形如 30m / 24h / 7d", code="invalid_window", status=422)
+    value, unit = int(match.group(1)), match.group(2)
+    return float(value * {"m": 60, "h": 3600, "d": 86400}[unit])
+
+
+def _collect_artifacts(events: list[Event]) -> tuple[list[dict], list[dict]]:
+    """从事件流聚合"答案引用了什么、调用过哪些工具"。
+
+    终态事件里已经有 Runtime 写好的快照，优先用它；run 还没结束时退化为按
+    工具完成事件聚合。events 仍是唯一事实源，不额外建表。
+    """
+    citations: list[dict] = []
+    tools: list[dict] = []
+    for event in events:
+        payload = event.payload or {}
+        if event.type in (EventType.RUN_COMPLETED, EventType.RUN_FAILED):
+            citations = payload.get("citations") or []
+            tools = payload.get("tools") or []
+        elif event.type in (EventType.TOOL_CALL_COMPLETED, EventType.TOOL_CALL_FAILED):
+            tools.append({
+                "tool": payload.get("tool"),
+                "version": payload.get("version"),
+                "ok": payload.get("ok"),
+                "code": payload.get("code"),
+                "latency_ms": payload.get("latency_ms"),
+            })
+    return citations, tools
 
 
 # ------------------------------------------------------------------ 请求模型
@@ -191,6 +237,8 @@ def build_state(settings: Settings, llm_provider: LLMProvider | None = None) -> 
         knowledge=knowledge, memory=memory, sandbox=SandboxRunner(),
         tool_timeout_s=settings.tool_timeout_s,
     ))
+    # 连接器与内置工具走同一个注册表：权限、超时、重试、截断、审计全部复用
+    register_connectors(registry, settings)
 
     base_llm = build_llm(settings, llm_provider)
     resilient = ResilientLLM(
@@ -227,6 +275,7 @@ def create_app(settings: Settings | None = None, llm_provider: LLMProvider | Non
             logger.warning("HERMES_AUTH_MODE=off：单租户管理员模式，仅用于本地演示/测试/CI")
         await state.scheduler.start()
         await _recover_runs(state)
+        await asyncio.to_thread(_prune_events, state)
         trigger_task: asyncio.Task | None = None
         if settings.trigger_tick_s > 0:
             trigger_task = asyncio.create_task(_trigger_loop(state))
@@ -464,6 +513,36 @@ def create_app(settings: Settings | None = None, llm_provider: LLMProvider | Non
             user_id=effective_user(principal, body.user_id), title=body.title)
         return {"session_id": session.id, "tenant_id": session.tenant_id, "user_id": session.user_id}
 
+    @app.get("/v1/usage")
+    async def get_usage(request: Request, window: str = "7d",
+                        tenant_id: str | None = None,
+                        principal: Principal = Depends(who)) -> dict:
+        """按租户聚合窗口内的 run 数、token 与成本；普通用户只能看自己租户。"""
+        state = st(request)
+        effective = effective_tenant(principal, tenant_id)
+        summary = await asyncio.to_thread(
+            state.runs.usage_summary,
+            tenant_id=effective,
+            since=time.time() - _parse_window(window),
+        )
+        summary["window"] = window
+        return summary
+
+    @app.post("/v1/admin/prune")
+    async def admin_prune(request: Request, days: int | None = None,
+                          principal: Principal = Depends(who)) -> dict:
+        """手动触发事件清理（仅管理员）；长驻进程配合定时任务使用。"""
+        state = st(request)
+        if not principal.is_admin:
+            raise ApiError("需要管理员权限", code="forbidden", status=403)
+        keep = days if days is not None else state.settings.event_retention_days
+        if keep <= 0:
+            return {"deleted": 0, "retention_days": keep}
+        deleted = await asyncio.to_thread(
+            state.event_store.prune, before_ts=time.time() - keep * 86400
+        )
+        return {"deleted": deleted, "retention_days": keep}
+
     @app.get("/v1/sessions")
     async def list_sessions(request: Request, tenant_id: str | None = Query(None),
                             user_id: str | None = Query(None),
@@ -517,11 +596,14 @@ def create_app(settings: Settings | None = None, llm_provider: LLMProvider | Non
         state = st(request)
         row = visible_run(state, run_id, principal)
         checkpoint = state.runs.load_checkpoint(run_id) or {}
+        events = await asyncio.to_thread(state.event_store.history, run_id, 0, 5000)
+        citations, tool_calls = _collect_artifacts(events)
         return {
             "run_id": row["id"], "state": row["state"], "answer": row["answer"],
             "error": row["error"], "steps": row["steps"],
             "usage": json.loads(row["usage"] or "{}"),
             "pending": checkpoint.get("pending"),
+            "citations": citations, "tool_calls": tool_calls,
             "created_at": row["created_at"], "updated_at": row["updated_at"],
         }
 
@@ -724,6 +806,26 @@ def create_app(settings: Settings | None = None, llm_provider: LLMProvider | Non
         )
         return {"doc_id": report.doc_id, "version": report.version, "chunks": report.chunks,
                 "replaced_versions": report.replaced_versions, "chars": report.chars}
+
+    @app.get("/v1/knowledge/documents/{doc_id}/versions")
+    async def list_kb_versions(doc_id: str, request: Request,
+                               principal: Principal = Depends(who)) -> dict:
+        state = st(request)
+        require_scope(principal, "knowledge:read")
+        items = await asyncio.to_thread(state.knowledge.versions, doc_id)
+        if not items:
+            raise ApiError("文档不存在", code="document_not_found", status=404)
+        return {"doc_id": doc_id, "items": items}
+
+    @app.post("/v1/knowledge/documents/{doc_id}/versions/{version}/activate")
+    async def activate_kb_version(doc_id: str, version: str, request: Request,
+                                  principal: Principal = Depends(who)) -> dict:
+        state = st(request)
+        require_scope(principal, "knowledge:write")
+        ok = await asyncio.to_thread(state.knowledge.activate_version, doc_id, version)
+        if not ok:
+            raise ApiError("版本不存在", code="version_not_found", status=404)
+        return {"doc_id": doc_id, "version": version, "activated": True}
 
     @app.get("/v1/knowledge/search")
     async def search(q: str, request: Request, top_k: int = Query(4, ge=1, le=10),

@@ -1,0 +1,35 @@
+[
+  {"doc_id": "lora_notes", "path": "knowledge_base/lora_notes.md"},
+  {"doc_id": "finance_policy", "path": "knowledge_base/finance_policy.md", "acl": ["finance"]},
+  {
+    "doc_id": "lora_legacy",
+    "title": "LoRA 调参旧版笔记",
+    "text": "# LoRA 调参旧版笔记\n本笔记已过时，仅作为检索评测的难负例。\n- 秩 r：早期实践中常把 r 设为 64 或 128，并认为越大越好。\n- alpha：固定取 32。\n- 目标模块：只注入 q_proj。\n"
+  },
+  {
+    "doc_id": "finance_legacy",
+    "title": "旧版差旅标准",
+    "acl": ["finance"],
+    "text": "# 旧版差旅标准\n本文件已失效，仅作为检索评测的难负例。\n- 一线城市住宿上限为每晚 800 元。\n- 二线城市住宿上限为每晚 500 元。\n"
+  },
+  {
+    "doc_id": "alpha_service",
+    "title": "Alpha 服务接入说明",
+    "text": "# Alpha 服务接入说明\nAlpha 服务默认超时 30 秒，最大重试 2 次；连续失败超过 3 次进入熔断。\n"
+  },
+  {
+    "doc_id": "beta_service",
+    "title": "Beta 服务接入说明",
+    "text": "# Beta 服务接入说明\nBeta 服务默认超时 60 秒，最大重试 3 次；连续失败超过 5 次进入熔断。\n"
+  },
+  {
+    "doc_id": "deploy_notes",
+    "title": "灰度发布规范",
+    "text": "# 灰度发布规范\n灰度发布先切 5% 流量，观察 30 分钟无错误后再扩到 25%，最后全量。\n回滚时先摘除新版本实例，再恢复旧版本流量。\n"
+  },
+  {
+    "doc_id": "security_policy",
+    "title": "生产安全规范",
+    "text": "# 生产安全规范\n生产环境禁止使用 root 账号运行服务；数据库密码必须通过密钥管理服务注入，不得写入代码仓库。\n"
+  }
+]

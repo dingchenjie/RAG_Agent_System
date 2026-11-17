@@ -199,6 +199,39 @@ class KnowledgeIndex:
             for row in rows
         ]
 
+    def versions(self, doc_id: str) -> list[dict]:
+        """列出某个文档的全部历史版本（含已下线的），用于回滚前确认。"""
+        rows = self.db.query(
+            "SELECT d.version, d.title, d.acl, d.active, d.updated_at, "
+            " (SELECT COUNT(*) FROM chunks c WHERE c.doc_id=d.doc_id AND c.version=d.version) AS chunks "
+            "FROM documents d WHERE d.doc_id=? ORDER BY d.updated_at DESC, d.version DESC",
+            (doc_id,),
+        )
+        return [
+            {
+                "version": row["version"], "title": row["title"],
+                "acl": json.loads(row["acl"] or "[]"), "active": bool(row["active"]),
+                "chunks": int(row["chunks"]), "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+    def activate(self, doc_id: str, version: str) -> bool:
+        """把指定历史版本切回线上；旧数据的 active 标志就是版本开关，不需要重建索引。"""
+        with self.db.transaction() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM documents WHERE doc_id=? AND version=?", (doc_id, version)
+            ).fetchone()
+            if not exists:
+                return False
+            conn.execute("UPDATE documents SET active=0 WHERE doc_id=?", (doc_id,))
+            conn.execute("UPDATE chunks SET active=0 WHERE doc_id=?", (doc_id,))
+            conn.execute("UPDATE documents SET active=1 WHERE doc_id=? AND version=?",
+                         (doc_id, version))
+            conn.execute("UPDATE chunks SET active=1 WHERE doc_id=? AND version=?",
+                         (doc_id, version))
+        return True
+
     # ---------- 读取 ----------
     def _active_chunks(self, acl_groups: set[str] | None) -> list[dict]:
         rows = self.db.query(
@@ -224,7 +257,7 @@ class KnowledgeIndex:
         top_k: int = 4,
         acl_groups: set[str] | None = None,
         rerank_pool: int = 20,
-        min_coverage: float = 0.34,
+        min_coverage: float = 0.2,
         min_vector: float = 0.18,
     ) -> list[Hit]:
         """混合检索：BM25 + 向量 + RRF 融合，并做相关性门控。

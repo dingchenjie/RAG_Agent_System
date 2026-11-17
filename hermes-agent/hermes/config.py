@@ -94,6 +94,12 @@ class Settings:
     mcp_command: str = "python"
     mcp_args: list[str] = field(default_factory=lambda: ["-m", "hermes.mcp_server.server"])
 
+    # 声明式连接器（JSON 数组，空表示不启用）：把已有 HTTP 接口 / CLI 命令接入工具注册表
+    connectors: str = ""
+
+    # 事件保留天数：超期的已结束 run 只保留终态事件，避免 events 表无限增长；0 表示关闭
+    event_retention_days: int = 30
+
     context: ContextConfig = field(default_factory=ContextConfig)
 
     @classmethod
@@ -142,5 +148,7 @@ class Settings:
             memory_min_confidence=_env_float("HERMES_MEMORY_MIN_CONFIDENCE", 0.5),
             mcp_command=_env_str("HERMES_MCP_COMMAND", "python"),
             mcp_args=[part for part in args.split(",") if part],
+            connectors=_env_str("HERMES_CONNECTORS", ""),
+            event_retention_days=_env_int("HERMES_EVENT_RETENTION_DAYS", 30),
             context=ctx,
         )

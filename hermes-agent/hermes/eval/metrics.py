@@ -128,6 +128,7 @@ class EvalReport:
                 f"| 数据集 | {self.meta.get('dataset', '-')}（{self.meta.get('dataset_size', 0)} 条） |",
                 f"| 模式 | {', '.join(self.meta.get('modes', [])) or '-'} |",
                 f"| LLM | {self.meta.get('llm_provider', '-')} / {self.meta.get('llm_model', '-')} |",
+                f"| Prompt 版本 | {self.meta.get('prompt_version', '-')} |",
                 f"| Embedding / Rerank | {self.meta.get('embedding', '-')} / {self.meta.get('rerank', '-')} |",
                 "",
             ]

@@ -211,6 +211,8 @@ class AgentRuntime:
         injected: dict[str, str] = {}
         citations: list[dict] = []
         recalled_memories: list[dict] = []
+        # 终态要能回答"这个答案调过哪些工具、哪条引用支撑的"，所以在循环内留一份轻量轨迹
+        tool_trace: list[dict] = []
         try:
             await self._prepare_context(user_input, tenant_id, user_id, scopes, injected,
                                         citations, recalled_memories, run_id)
@@ -247,6 +249,12 @@ class AgentRuntime:
                         {"tool": pending["name"], "agent": self.agent_name})),
                     tool_call_id=pending.get("id"), name=pending["name"]))
                 self.sessions.add_message(session_id, history[-1])
+                tool_trace.append({
+                    "tool": pending["name"],
+                    "version": pending_spec.version if pending_spec else "",
+                    "ok": result.ok, "code": result.code,
+                    "latency_ms": result.latency_ms, "confirmed": True,
+                })
                 await self._emit(run_id, EventType.TOOL_CALL_COMPLETED if result.ok else EventType.TOOL_CALL_FAILED,
                                  {"tool": pending["name"],
                                   "version": pending_spec.version if pending_spec else "",
@@ -331,6 +339,9 @@ class AgentRuntime:
                         pending = {"id": tool_call.id, "name": tool_call.name,
                                    "arguments": tool_call.arguments}
                         paused = True
+                        tool_trace.append({"tool": tool_call.name, "version": version,
+                                           "ok": False, "code": "needs_confirmation",
+                                           "latency_ms": 0.0})
                         await self._emit(run_id, EventType.TOOL_CONFIRM_REQUIRED, {
                             "tool": tool_call.name, "version": version,
                             "arguments": tool_call.arguments,
@@ -346,6 +357,9 @@ class AgentRuntime:
                         tool_call_id=tool_call.id, name=tool_call.name)
                     history.append(tool_message)
                     self.sessions.add_message(session_id, tool_message)
+                    tool_trace.append({"tool": tool_call.name, "version": version,
+                                       "ok": result.ok, "code": result.code,
+                                       "latency_ms": result.latency_ms})
                     await self._emit(
                         run_id,
                         EventType.TOOL_CALL_COMPLETED if result.ok else EventType.TOOL_CALL_FAILED,
@@ -374,10 +388,14 @@ class AgentRuntime:
             await self._emit(run_id, EventType.RUN_CANCELLED, {"reason": error, "step": step})
         except BudgetExceeded as exc:
             state, error = "failed", str(exc)
-            await self._emit(run_id, EventType.RUN_FAILED, {"error": error, "kind": "budget"})
+            await self._emit(run_id, EventType.RUN_FAILED, {
+                "error": error, "kind": "budget", "tools": tool_trace[-20:],
+            })
         except Exception as exc:  # noqa: BLE001
             state, error = "failed", str(exc)
-            await self._emit(run_id, EventType.RUN_FAILED, {"error": error, "kind": type(exc).__name__})
+            await self._emit(run_id, EventType.RUN_FAILED, {
+                "error": error, "kind": type(exc).__name__, "tools": tool_trace[-20:],
+            })
 
         usage_snapshot = meter.snapshot()
         self.runs.update(run_id, state=state, answer=answer, error=error, steps=step,
@@ -389,6 +407,7 @@ class AgentRuntime:
         if state == "succeeded":
             await self._emit(run_id, EventType.RUN_COMPLETED, {
                 "steps": step, "usage": usage_snapshot["total"], "answer": (answer or "")[:500],
+                "citations": citations[:10], "tools": tool_trace[-20:],
             })
             await self._maybe_propose_memory(run_id, tenant_id, user_id, user_input)
             self.metrics.inc("hermes_runs_total", state="succeeded")

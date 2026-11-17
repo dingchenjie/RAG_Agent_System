@@ -142,7 +142,8 @@ class Orchestrator:
 
         await self.bus.emit(Event(
             run_id=run_id, type=EventType.RUN_COMPLETED if state == "succeeded" else EventType.RUN_FAILED,
-            payload={"orchestrator": True, "state": state, "workers": len(results)},
+            payload={"orchestrator": True, "state": state, "workers": len(results),
+                     "worker_run_ids": [r.run_id for r in results if r.run_id]},
         ))
         return OrchestratorResult(state=state, answer=answer, plan=plan, workers=results,
                                   usage=usage, blackboard=blackboard.snapshot())

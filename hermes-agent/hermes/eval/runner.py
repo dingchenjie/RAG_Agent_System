@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -175,6 +176,7 @@ class EvalRunner:
 
     def _describe(self, tasks: list[dict]) -> dict:
         settings = getattr(self.runtime, "settings", None)
+        prompt = getattr(self.runtime, "system_prompt", "") or ""
         return {
             "dataset": self.dataset_path.name,
             "dataset_size": len(tasks),
@@ -183,4 +185,5 @@ class EvalRunner:
             "llm_model": getattr(settings, "llm_model", "unknown"),
             "embedding": getattr(settings, "embedding_backend", "unknown"),
             "rerank": getattr(settings, "rerank_backend", "unknown"),
+            "prompt_version": hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:8],
         }
