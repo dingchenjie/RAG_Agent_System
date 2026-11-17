@@ -276,15 +276,16 @@ docker build --build-arg INSTALL_EXTRAS="semantic" -t hermes-agent:semantic .
 
 | 检查项 | 结果 |
 | --- | --- |
-| `docker build -t hermes-agent:0.2.0 .` | 成功，镜像 268 MB |
+| `docker build -t hermes-agent:0.2.1 .` | 成功，镜像 268 MB |
 | `docker compose config` | 通过（无语法/插值错误） |
 | 容器内 `GET /healthz` | 200，`embedding=hashing/384`、`rerank=rrf`、`llm=mock` |
-| `POST /v1/runs` → 轮询状态 | `queued → succeeded`，trace 落 23 条事件 |
+| `POST /v1/runs` → 轮询状态 | `queued → succeeded`；闲聊 trace 11 条事件（检索问答 23 条） |
+| `/metrics` | 记录 `http_requests_total`，含 422 参数校验失败（错误契约生效） |
 | 数据卷 | `/data` 挂 `hermes_data`，SQLite 与上传目录都在卷内，重建容器不丢 |
 
 注意：`/v1/runs/{id}/events` 是 SSE 长连接，用 `curl -N` 或浏览器看，`curl` 默认会一直挂着不返回。
 
-0.2.1 只改动 Python 代码与文档，镜像构建参数不变；本地复验直接重跑上面的 `docker build`（把 tag 换成 `0.2.1`）即可。
+以上为 0.2.1 镜像的实测结果（`docker build` 用时约 3 s，含缓存层）。
 
 ## 10. 面试材料
 
