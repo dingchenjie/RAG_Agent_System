@@ -88,12 +88,13 @@ def test_retrieval_dataset_scale_and_category_coverage():
     """离线评测集需覆盖多类内部知识与多种问法，规模不足会让指标失真。"""
     tasks = load_retrieval_tasks(ROOT / "eval" / "retrieval.jsonl")
     scored = [t for t in tasks if t.get("gold") and not t.get("expect_empty")]
-    assert len(tasks) >= 40
-    assert len(scored) >= 30
+    assert len(tasks) >= 60
+    assert len(scored) >= 50
     assert sum(1 for t in tasks if t.get("expect_empty")) >= 10
 
+    # 语料太少时 recall@5 天然饱和，重排 A/B 会失去区分度；规模下限要跟着涨。
     corpus = json.loads((ROOT / "eval" / "retrieval_corpus.json").read_text(encoding="utf-8"))
-    assert len(corpus) >= 50
+    assert len(corpus) >= 300
     assert len({doc["doc_id"] for doc in corpus}) == len(corpus)
     assert sum(1 for doc in corpus if doc.get("acl")) >= 6
 

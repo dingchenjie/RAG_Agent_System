@@ -5,6 +5,7 @@ import asyncio
 from pathlib import Path
 
 from hermes.api.app import build_state
+from hermes.eval.metrics import aggregate_summaries
 from hermes.eval.runner import EvalRunner
 from hermes.llm.mock import MockLLM
 from tests.conftest import ingest_seed_docs
@@ -35,6 +36,24 @@ def test_eval_report_metrics(settings):
     assert "忠实度" in report.markdown()
     assert set(summary["by_mode"]) == {"single", "orchestrate"}
     assert report.meta["dataset_size"] == len(tasks)
+
+
+def test_aggregate_summaries_reports_mean_and_std():
+    """多轮评测要报均值与标准差，避免把单次真实模型结果当成稳定值。"""
+    merged = aggregate_summaries([
+        {"success_rate": 1.0, "tool_f1": 0.9, "latency_p95_ms": 100.0,
+         "total_cost_usd": 0.02, "faithfulness_avg": 0.8},
+        {"success_rate": 0.5, "tool_f1": 0.7, "latency_p95_ms": 300.0,
+         "total_cost_usd": 0.04, "faithfulness_avg": 0.6},
+    ])
+    assert merged["repeats"] == 2
+    assert merged["success_rate"] == 0.75
+    assert merged["success_rate_std"] == 0.25
+    assert merged["success_rate_min"] == 0.5
+    assert merged["success_rate_max"] == 1.0
+    assert merged["latency_p95_ms"] == 200.0
+    assert merged["total_cost_usd"] == 0.03
+    assert merged["faithfulness_avg"] == 0.7
 
 
 def test_single_task_trace_based_tool_check(settings):

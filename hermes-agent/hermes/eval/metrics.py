@@ -155,6 +155,33 @@ class EvalReport:
         return "\n".join(lines)
 
 
+_AGGREGATED_KEYS = ("success_rate", "tool_f1", "latency_p95_ms", "total_cost_usd")
+
+
+def aggregate_summaries(summaries: list[dict],
+                        keys: tuple[str, ...] = _AGGREGATED_KEYS) -> dict:
+    """把同一份数据集的多轮评测汇总成均值 ± 标准差。
+
+    真实模型的单轮结果会抖动，只报一次成功率无法区分"模型波动"和"真的回归"；
+    多轮取均值、标准差与极值，才能把结论写成可复现的区间。
+    """
+    if not summaries:
+        return {}
+    merged = dict(summaries[0])
+    merged["repeats"] = len(summaries)
+    for key in keys:
+        values = [float(item.get(key) or 0.0) for item in summaries]
+        digits = 6 if key == "total_cost_usd" else 4
+        merged[key] = round(statistics.fmean(values), digits)
+        merged[f"{key}_std"] = round(statistics.pstdev(values), digits)
+        merged[f"{key}_min"] = round(min(values), digits)
+        merged[f"{key}_max"] = round(max(values), digits)
+    scored = [item["faithfulness_avg"] for item in summaries
+              if item.get("faithfulness_avg") is not None]
+    merged["faithfulness_avg"] = round(statistics.fmean(scored), 4) if scored else None
+    return merged
+
+
 def _fmt_faithfulness(value: float | None) -> str:
     return "-" if value is None else f"{value:.4f}"
 

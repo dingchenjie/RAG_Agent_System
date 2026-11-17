@@ -17,12 +17,14 @@ from .index import Hit
 
 class Reranker(Protocol):
     name: str
+    candidate_factor: int  # 候选池放大倍数：重排只能从召回的候选里挑，池子不能等于最终 top-k
 
     def rerank(self, query: str, hits: list[Hit], top_k: int) -> list[Hit]: ...
 
 
 class RRFReranker:
     name = "rrf"
+    candidate_factor = 1  # 索引层已融合，无需扩大候选
 
     def rerank(self, query: str, hits: list[Hit], top_k: int) -> list[Hit]:
         return hits[:top_k]
@@ -30,6 +32,7 @@ class RRFReranker:
 
 class CrossEncoderReranker:
     name = "cross-encoder"
+    candidate_factor = 3
 
     def __init__(self, model_name: str = "BAAI/bge-reranker-base"):
         self.model_name = model_name

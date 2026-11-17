@@ -18,6 +18,25 @@ def test_ingest_and_version_replacement(settings):
     assert state.knowledge.stats()["documents"] == 1
 
 
+def test_cross_encoder_rerank_expands_candidate_pool(settings):
+    """交叉重排只能从召回候选里挑，候选池必须大于最终 top-k，否则只是换顺序。"""
+    from hermes.knowledge.rerank import CrossEncoderReranker, RRFReranker
+
+    state = build_state(settings, MockLLM())
+    calls: list[int] = []
+
+    def recording_search(query, *, top_k, **kwargs):
+        calls.append(top_k)
+        return []
+
+    state.knowledge.index.search = recording_search
+    state.knowledge.reranker = RRFReranker()
+    state.knowledge.search("LoRA", top_k=4)
+    state.knowledge.reranker = CrossEncoderReranker()
+    state.knowledge.search("LoRA", top_k=4)
+    assert calls == [4, 12]
+
+
 def test_acl_filtering(settings):
     state = build_state(settings, MockLLM())
     state.knowledge.ingest_text("policy", "差旅住宿上限为每晚 600 元。", version="1", acl=["finance"])

@@ -3,6 +3,7 @@
 用法：
     python scripts/loadtest.py --runs 20 --concurrency 5
     python scripts/loadtest.py --runs 10 --mode orchestrate --base-url http://127.0.0.1:8000
+    python scripts/loadtest.py --runs 8 --concurrency 1,2,4,8   # 容量扫描
 """
 from __future__ import annotations
 
@@ -50,7 +51,8 @@ async def main() -> int:
     parser = argparse.ArgumentParser(description="Hermes API 并发压测")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--runs", type=int, default=20)
-    parser.add_argument("--concurrency", type=int, default=5)
+    parser.add_argument("--concurrency", default="5",
+                        help="并发数；逗号分隔做容量扫描，如 1,2,4,8")
     parser.add_argument("--mode", choices=["single", "orchestrate"], default="single")
     parser.add_argument("--min-success-rate", type=float, default=1.0)
     args = parser.parse_args()
@@ -60,7 +62,25 @@ async def main() -> int:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    semaphore = asyncio.Semaphore(args.concurrency)
+    levels = _parse_levels(args.concurrency)
+    results = []
+    for level in levels:
+        if len(levels) > 1:
+            print(f"\n--- concurrency={level} ---")
+        results.append(await _run_level(args, level, headers))
+
+    if len(results) > 1:
+        print("\n并发扫描：")
+        print("concurrency  runs  success_rate  throughput(run/s)  P50(s)  P95(s)  P99(s)")
+        for item in results:
+            print(f"{item['concurrency']:>11}  {item['runs']:>4}  {item['rate']:>11.2%}  "
+                  f"{item['throughput']:>16.2f}  {item['p50']:>6.2f}  {item['p95']:>6.2f}  "
+                  f"{item['p99']:>6.2f}")
+    return 0 if all(item["rate"] >= args.min_success_rate for item in results) else 1
+
+
+async def _run_level(args: argparse.Namespace, concurrency: int, headers: dict) -> dict:
+    semaphore = asyncio.Semaphore(concurrency)
     latencies: list[float] = []
     states: Counter[str] = Counter()
 
@@ -77,13 +97,38 @@ async def main() -> int:
 
     success = states.get("succeeded", 0)
     rate = success / max(1, args.runs)
-    print(f"mode={args.mode} runs={args.runs} concurrency={args.concurrency} wall={wall:.1f}s")
+    print(f"mode={args.mode} runs={args.runs} concurrency={concurrency} wall={wall:.1f}s")
     print(f"states={dict(states)}")
     print(f"success_rate={rate:.2%}  throughput={args.runs / wall:.2f} run/s")
     print(f"latency  P50={_percentile(latencies, 0.50):.2f}s  "
           f"P95={_percentile(latencies, 0.95):.2f}s  P99={_percentile(latencies, 0.99):.2f}s  "
           f"max={max(latencies):.2f}s")
-    return 0 if rate >= args.min_success_rate else 1
+    return {
+        "concurrency": concurrency,
+        "runs": args.runs,
+        "rate": rate,
+        "throughput": args.runs / wall,
+        "p50": _percentile(latencies, 0.50),
+        "p95": _percentile(latencies, 0.95),
+        "p99": _percentile(latencies, 0.99),
+        "states": dict(states),
+    }
+
+
+def _parse_levels(value: str) -> list[int]:
+    levels = []
+    for part in value.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            level = int(part)
+        except ValueError as exc:
+            raise SystemExit(f"并发数必须是整数：{part}") from exc
+        if level <= 0:
+            raise SystemExit(f"并发数必须大于 0：{part}")
+        levels.append(level)
+    return levels or [5]
 
 
 if __name__ == "__main__":

@@ -56,6 +56,7 @@ class Settings:
     llm_temperature: float = 0.1
     llm_breaker_threshold: int = 5       # 连续失败 N 次熔断
     llm_breaker_reset_s: float = 30.0
+    mock_delay_s: float = 0.0            # 仅 Mock Provider：每次 LLM 调用人为延迟，用于故障演练/压测
 
     # 工具
     tool_timeout_s: float = 15.0
@@ -129,6 +130,7 @@ class Settings:
             llm_api_key=_env_str("ZHIPU_API_KEY", _env_str("HERMES_LLM_API_KEY", "")),
             llm_timeout_s=_env_float("HERMES_LLM_TIMEOUT_S", 60.0),
             llm_max_retries=_env_int("HERMES_LLM_MAX_RETRIES", 3),
+            mock_delay_s=_env_float("HERMES_MOCK_DELAY_S", 0.0),
             tool_timeout_s=_env_float("HERMES_TOOL_TIMEOUT_S", 15.0),
             tool_max_retries=_env_int("HERMES_TOOL_MAX_RETRIES", 2),
             sandbox_mode=_env_str("HERMES_SANDBOX_MODE", "process"),

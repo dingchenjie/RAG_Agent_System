@@ -1,4 +1,4 @@
-﻿﻿# Hermes Agent
+﻿﻿﻿﻿# Hermes Agent
 
 一个**能托管长任务、可被干预、可复盘、可评测**的 Agent 工程：把"模型 + 工具"的 Demo，做成覆盖
 **Runtime / 上下文工程 / 工具与 MCP / RAG 知识层 / 长期记忆 / 多 Agent 调度 / 可观测评测**的完整系统。
@@ -22,7 +22,7 @@
 cd hermes-agent
 pip install -e ".[dev]"
 
-python -m pytest                                   # 200 项测试，全离线（Mock Provider）
+python -m pytest                                   # 203 项测试，全离线（Mock Provider）
 hermes ask "LoRA 的秩 r 通常设置为多少？"            # 自动入库种子知识库，打印答案 + 工具轨迹
 hermes ingest ./samples/lora.pdf                   # 真实 PDF：按页解析 → 分块 → 去冗余 → 入库
 hermes eval --fail-under 0.99                      # 离线评测 + CI 门禁（含忠实度）
@@ -134,7 +134,7 @@ pip install -e ".[ragas]"       # RAGAS 忠实度（未装则用离线引用支�
 | **可观测 / 评测** | 事件全序 + span + Prometheus；token/成本预算；`GET /v1/usage` 按租户聚合 token/成本/状态分布（普通用户只能看自己租户）；事件保留策略（`HERMES_EVENT_RETENTION_DAYS` 启动清理中间事件，保留终态）；工具调用事件记录工具版本；`GET /v1/runs/{id}` 返回 `citations` 与 `tool_calls`；`EvalRunner`（成功率、工具 P/R/F1、引用覆盖、忠实度、P50/P95）+ **检索专项 `recall@k`/`MRR`/`nDCG@k`（分类 + 门控扫描 + embedding A/B）** + **间接注入红队（越权工具/标记泄漏）** + **上下文压缩专项（事实保留率/压缩比）** + **长期记忆专项（冲突/TTL/跨租户隔离）** + **记忆抽取专项（规则 vs LLM 的 P/R/F1 与负例误抽）** + **教训注入 A/B（无教训 / 注入已确认教训）** + **编排失败隔离（部分失败降级 / 全部失败显式报错，故障注入）** + **真实模型基线（`--real`/`--save-baseline`/`--baseline` 门禁）** + **失败样本回归沉淀（模型/提示词版本口径）**；`/replay` 时间线、`/diff` 两版对比、CLI `hermes replay --against`；`--fail-under` 门禁 | `observability/*`、`eval/*`、`api/app.py`、`cli.py` |
 | **主动触发** | interval 触发器（≥10s）：`triggers` 表 + `TriggerService.due()` 原子推进 `next_fire_at` + API 进程内后台扫描；触发与 HTTP 共用 `enqueue_run`，不新增建 run 入口；多副本需分布式锁（已列为边界） | `triggers.py`、`api/app.py`、`cli.py` |
 | **凭据保护** | 事件落库、工具审计、错误响应前统一脱敏（Authorization / `sk-*` / key-value 敏感字段）；轨迹可读但不可泄密 | `security/redact.py` |
-| **工程化 / 交付** | 单一 CLI 入口；pyproject extras 分层依赖；Docker + compose；ruff + 覆盖率门禁 + GitHub Actions；200 项离线测试 | `cli.py`、`pyproject.toml`、`Dockerfile`、`.github/workflows/ci.yml` |
+| **工程化 / 交付** | 单一 CLI 入口；pyproject extras 分层依赖；Docker + compose；ruff + 覆盖率门禁 + GitHub Actions；203 项离线测试 | `cli.py`、`pyproject.toml`、`Dockerfile`、`.github/workflows/ci.yml` |
 
 ---
 
@@ -163,11 +163,11 @@ pip install -e ".[ragas]"       # RAGAS 忠实度（未装则用离线引用支�
 - **重排默认 RRF**：两路召回无标定融合，零依赖可测；`CrossEncoderReranker` 作为可选后端（`HERMES_RERANK=cross-encoder`）。
 - **忠实度默认离线**：逐句"引用支撑度"（n-gram 覆盖率）替代 LLM 判官，可回归、零成本；RAGAS 通过 optional 适配器接入。
 - **确定性 Planner 而非"让模型自由规划"**：`Orchestrator` 只依赖 `planner.plan(goal, available) -> Plan` 这一个方法（构造参数目前标注为 `RulePlanner`，抽成 `Protocol` 只是两行代码），调度、并行、黑板、汇总都不用改——这就是"可替换"的具体落点。
-- **Mock Provider 不是玩具**：它是"可回归"的前提——200 项测试与 22 条端到端评测（另有检索/注入/压缩/记忆/抽取/教训注入六组专项）在没有网络和 Key 时断言完整调用链（工具顺序、取消、恢复、熔断）。
+- **Mock Provider 不是玩具**：它是"可回归"的前提——203 项测试与 22 条端到端评测（另有检索/注入/压缩/记忆/抽取/教训注入六组专项）在没有网络和 Key 时断言完整调用链（工具顺序、取消、恢复、熔断）。
 - **幂等键按 run 作用域**：读类工具结果随时间变化，跨 run 复用缓存会返回过期事实（开发中真实踩到）。
 - **上下文裁剪必须保配对**：丢 `assistant.tool_calls` 必须连同其 `tool` 结果一起丢，否则 OpenAI 兼容接口直接判请求非法。
 - **事件 seq 分配必须原子**：并发子 Agent 下 `MAX(seq)+1` 与 `INSERT` 之间有竞态，已用锁包住（全量测试曾因此偶发失败）。
-- **门控阈值由评测扫描决定，而不是拍脑袋**：检索专项同时扫 `min_coverage`，0.0 会把 10 条越界问题全部召回（0/10 返回空），0.1 仍有 8 条漏网，`0.2` 在 40 条集合（30 条计分）上 recall@5 100% 且越界 10/10；`0.34` 起开始漏掉跨 chunk 用例（recall 90%）。默认值已按扫描结果调整到 `0.2`，并把整条曲线留在评测输出里，方便换 embedding 后重新校准。
+- **门控阈值由评测扫描决定，而不是拍脑袋**：检索专项同时扫 `min_coverage`，并把整条曲线留在评测输出里。语料从 50 篇扩到 331 篇后曲线明显右移：`0.0` 把 10 条越界问题全部召回（0/10 返回空），`0.2` 在 50 条计分查询上 recall@5 94%、越界 8/10，`0.34` 才做到越界 10/10 但 recall@5 降到 88%。默认保持 `0.2`（召回优先，误召回的片段还有 `<untrusted>` 隔离与"无依据不回答"兜底），需要严格拒答时按扫描结果上调——**这个阈值必须随语料规模重新标定**，换 embedding 或扩语料后都要重跑扫描。
 - **多轮追问用规则补全，不让模型改写**：`knowledge/query.py` 只对"以指代词开头 / 短句以『呢』收尾"这类明显追问并入上一轮问题；LLM 改写会多一次调用、多一份不确定性，还会让检索评测不可回归。单轮问题原样透传，不增加任何行为变化。
 - **增量索引用文本精确匹配复用向量**：同一 `doc_id` 升版本时，文本完全相同的 chunk 直接复用历史向量，只对新 chunk 调 embedding；复用前校验 `embedding_model/dim`，换过后端一律重算，避免"维度一样但语义空间不同"的静默错分。
 
@@ -205,18 +205,19 @@ hermes eval --fail-under 0.99
 | 平均步数 | 1.18 |
 | 平均 token | 1525 |
 | P50 / P95 延迟 | ~22 ms / 42 ms（22 条样本，P95 波动大） |
-| 检索 recall@1 / @3 / @5 | 86.67% / 100% / 100%（50 篇语料、40 条查询，30 条计分） |
-| 检索 MRR / nDCG@5 | 0.9278 / 0.9309 |
-| 越界问题返回空 | 10/10 |
+| 检索 recall@1 / @3 / @5 | 76.00% / 92.00% / 94.00%（331 篇语料、60 条查询，50 条计分） |
+| 检索 MRR / nDCG@5 | 0.8350 / 0.8306 |
+| 越界问题返回空 | 8/10（默认门控 0.2；阈值 0.34 时 10/10、recall@5 88%） |
 | 注入红队抵抗率 | 100%（6/6，越权 0、泄漏 0） |
 | 上下文压缩（6 条，含 1 条负对照） | 判据 6/6 通过；事实保留 5/6（83.33%）；平均压缩比 84.77% |
 | 长期记忆（召回/冲突/TTL/隔离） | 100%（6/6） |
 | 记忆抽取（规则） | 精确率 100% / 召回 52.63% / F1 68.97%；负例误抽 0 |
 ```
 
-两组横向对照（同一套评测集，只换一个变量）：
+三组横向对照（同一套评测集，只换一个变量）：
 
-- **检索 embedding A/B（`--retrieval-ab`）**：hashing 与智谱 `embedding-3` 的 recall@5 都是 100%、MRR 相同，nDCG@5 分别为 0.9309 / 0.9285。语料已经饱和，说明默认 BM25 + RRF 足够；cross-encoder 重排因本机未装 `sentence-transformers` 没有跑，不做"纸面提升"。
+- **检索 embedding A/B（`--retrieval-ab`）**：331 篇语料下 hashing vs 智谱 `embedding-3`：recall@5 **94% → 96%**、recall@3 92% → 96%、recall@1 76% → 78%，MRR **0.8350 → 0.8533**，nDCG@5 0.8306 → 0.8534，语义召回略好；但**越界拒答从 8/10 掉到 0/10**——`min_vector=0.18` 这个绝对阈值是按哈希向量标定的，云端语义向量下无关文本的余弦也普遍更高，换后端必须同步重标定。默认仍是 hashing（确定性、可回归），要用云端向量就得连门控一起调，不能只换 embedder。
+- **重排 A/B（`--rerank-ab`）**：rrf → cross-encoder（bge-reranker-base，候选池由 5 条放大到 15 条再重排），331 篇语料、50 条计分查询。recall@5 **94% → 94%**（覆盖不变），recall@1 **76% → 82%**，MRR **0.8350 → 0.8717**，nDCG@5 **0.8306 → 0.8687**。结论：重排修的是"第一条是否对"，不是覆盖率——语料扩到 331 篇后这个收益才看得出来（50 篇时 recall@5 已饱和，只能看到 86.67% → 93.33% 的 recall@1 变化）。代价是 1.1GB 模型，本地 CPU 上每次检索约 1.1s（15 个候选），所以默认关闭、按需开启。
 - **记忆抽取 A/B**：规则抽取召回 52.63%，漏掉"项目/团队"这类没有固定句式的语义信息；LLM 抽取（glm-4-air，`temperature=0`）在 20 条上 P/R/F1 均为 100%，7 条负例（寒暄、一次性指令、注入、代码、第三方邮箱）全部沉默。两者都只产出 `pending` 候选，确认后才写入长期记忆。
 
 用途：**回归基线**。固定 Mock + 固定哈希向量，同一份代码永远得到同一组数字，改检索或改提示后掉下去就是明确信号。
@@ -228,13 +229,17 @@ hermes eval --fail-under 0.99
 
 | 指标 | Mock / 哈希 | **glm-4-air（默认）** |
 | --- | ---: | ---: |
-| 任务成功率 | 100% | **95.45%（21/22）** |
+| 任务成功率 | 100% | **95.45%（单轮，21/22）** |
 | single / orchestrate 成功率 | 100% / 100% | 94.44%（17/18）/ **100%（4/4）** |
 | 工具选择 F1 | 1.0000 | **0.9545** |
 | 忠实度（引用支撑） | 0.5010 | 0.3845（14 条有引用） |
 | 平均 token | 1525 | 2356 |
 | P50 / P95 延迟 | 22 ms / 42 ms | 2413 ms / **8927 ms** |
 | 22 任务总成本 | $0 | **$0.023792** |
+
+同一配置用 `--repeats 3` 重复 3 轮：成功率 **92.42% ± 2.14%**（min 90.91% / max 95.45%），
+P95 **4260 ± 905 ms**，总成本 **$0.023057 ± $0.000542**。单轮 95.45% 属于偏乐观的一次；
+对外引用 3 轮均值更稳，22 条里通常有 1–2 条在工具选择/关键词上抖动。
 
 **真实模型暴露的问题，比数字本身更有价值：**
 
@@ -247,8 +252,8 @@ hermes eval --fail-under 0.99
 跑法：
 
 ```bash
-HERMES_LLM_PROVIDER=zhipu python scripts/run_eval.py --real \
-  --save-baseline eval/baselines/zhipu-glm-4-air.json
+HERMES_LLM_PROVIDER=zhipu python scripts/run_eval.py --real --repeats 3 \
+  --save-baseline eval/baselines/zhipu-glm-4-air-3x.json
 ```
 
 `--baseline` 会对比成功率、P95 与成本，成功率下降超过 5 个百分点退出码为 1；数字会随模型版本和网络变化，建议自己重跑一遍再引用。
@@ -264,6 +269,13 @@ HERMES_LLM_PROVIDER=zhipu python scripts/run_eval.py --real \
 | orchestrate（mock） | 10 runs / 3 并发 | 100% | 33.1 run/s | 0.06s | 0.18s | 0.18s |
 | orchestrate（mock） | 30 runs / 10 并发 | 100% | 50.6 run/s | 0.15s | 0.21s | 0.28s |
 | single（glm-4-air） | 5 runs / 1 并发 | 100% | 0.56 run/s | 1.62s | 2.35s | 2.35s |
+| single（glm-4-air） | 6 runs / 1 并发 | 100% | 0.51 run/s | 1.88s | 2.59s | 2.59s |
+| single（glm-4-air） | 6 runs / 2 并发 | 100% | 0.84 run/s | 2.47s | 2.83s | 2.83s |
+| single（glm-4-air） | 6 runs / 4 并发 | 100% | 1.08 run/s | 3.33s | 3.33s | 3.33s |
+| single（glm-4-air） | 6 runs / 8 并发 | 100% | 1.09 run/s | 3.66s | 5.51s | 5.51s |
+
+真实模型下 1→8 并发只把吞吐从 0.51 推到 1.09 run/s，4 并发后基本不再增长；两次扫描的平台值在
+0.85–1.09 run/s 之间，波动来自上游配额与网络。延迟则持续上涨：P50 1.88s → 3.66s，P95 2.59s → 5.51s。
 
 事件轨迹分段（P50）：
 
@@ -276,14 +288,47 @@ HERMES_LLM_PROVIDER=zhipu python scripts/run_eval.py --real \
 
 - **mock 下"其他"占大头**：LLM 瞬时返回，耗时主要在上下文构建、记忆召回、SQLite 落库与 SSE 派发，不能拿来推断线上时延；
 - **真实模型下瓶颈非常明确**：LLM 生成占 98.7%，检索/工具/调度合计不到 2%。所以优化方向是提示词长度、输出长度与模型选择，而不是"换向量库"；
-- **容量拐点**：mock 下 5 并发 P50 0.17s，20 并发升到 0.63s，吞吐平台约 28 run/s，说明单进程 + SQLite 单写锁开始排队；真实模型下瓶颈会先落在上游 LLM 配额，而不是这里。
+- **容量拐点要分两层说**：mock 下 5 并发 P50 0.17s，20 并发升到 0.63s，吞吐平台约 28 run/s，这是单进程 + SQLite 单写锁的本地上限；真实模型下 4 并发就摸到约 1 run/s 的平台，瓶颈先落在上游 LLM 配额与网络，SQLite 还没轮到。所以"能扛多少并发"必须带模型口径，单说 28 run/s 会误导。
 
 ```bash
 python -m uvicorn hermes.api.app:app --port 8010
 python scripts/loadtest.py --runs 20 --concurrency 5
 python scripts/loadtest.py --runs 50 --concurrency 20
+python scripts/loadtest.py --runs 6 --concurrency 1,2,4,8   # 容量扫描
 python scripts/latency_breakdown.py --db data/hermes.db --limit 20
 ```
+
+### 6.4 进程级恢复演练（kill -9）
+
+`tests/test_recovery.py` 只覆盖"库里已有在途 run"的对账逻辑；真正把服务进程杀掉再拉起来是另一回事。
+`scripts/recovery_drill.py` 会自动跑完整链路：起 mock 服务（每次 LLM 延迟 2s）→ 提交「计算 21 + 21」→
+等第 1 步 checkpoint 落盘 → kill 进程 → 重启 → 断言 `interrupted`（`process_restart` / `recoverable`）→
+`/resume` → 断言 `succeeded` 且工具只执行一次。
+
+```bash
+python scripts/recovery_drill.py          # 自动挑空闲端口，约 7s
+```
+
+延迟由 `HERMES_MOCK_DELAY_S` 控制（仅 Mock Provider，默认 0），演练脚本默认 2s；真实模型不需要这个开关。
+
+本机实测（2026-11，一次完整时间线）：
+
+```
++      0ms  run.created
++      1ms  run.started
++     10ms  llm.request
++   2021ms  tool.completed
++   2021ms  step.completed
++   2026ms  llm.request
+        -- kill -9，进程退出 --
++   4655ms  run.failed        # process_restart, recoverable=true
++   4834ms  run.resumed
++   4844ms  llm.request
++   6844ms  run.completed
+```
+
+结论：checkpoint 能跨进程续跑；中断后的 resume 从断点继续，没有重复执行已完成的工具调用。
+这也是"基础设施故障时 Agent 任务怎么办"这类面试题的直接演示材料。
 
 ---
 
@@ -325,10 +370,10 @@ hermes/
   cli.py         唯一人工入口：ask / chat / ingest / eval / serve / lessons / replay / triggers / kb
 knowledge_base/  种子 md（lora_notes、finance_policy）
 config/          connectors.example.json（HTTP / CLI 连接器示例，不默认加载）
-eval/            dataset.jsonl（22 条端到端：single 18 + orchestrate 4）；retrieval.jsonl（40 条检索，30 条计分 + 10 条越界）与 retrieval_corpus.json（50 篇）；injection.jsonl（6 条红队）；compression.jsonl（6 条压缩，含 1 条负对照）；memory.jsonl（6 条记忆）；extraction.jsonl（20 条抽取，13 正 + 7 负）；lessons_ab.jsonl（3 条教训注入 A/B）；baselines/（真实模型基线）；regressions/（失败样本，按需生成）
-scripts/         demo.py run_eval.py mcp_demo.py ingest.py loadtest.py latency_breakdown.py
+eval/            dataset.jsonl（22 条端到端：single 18 + orchestrate 4）；retrieval.jsonl（60 条检索，50 条计分 + 10 条越界）与 retrieval_corpus.json（331 篇，含 12 个业务域、同主题难负例与 ACL 文档）；injection.jsonl（6 条红队）；compression.jsonl（6 条压缩，含 1 条负对照）；memory.jsonl（6 条记忆）；extraction.jsonl（20 条抽取，13 正 + 7 负）；lessons_ab.jsonl（3 条教训注入 A/B）；baselines/（真实模型基线）；regressions/（失败样本，按需生成）
+scripts/         demo.py run_eval.py mcp_demo.py ingest.py loadtest.py latency_breakdown.py recovery_drill.py
 samples/         演示用真实 PDF
-tests/           200 项，覆盖上下文/工具/知识/记忆/运行时/韧性/多Agent/API/评测/MCP/CLI/安全/触发器/脱敏/重启恢复/连接器/生命周期/注入红队/失败回归/多轮检索/增量索引/压缩评测/记忆评测/抽取评测/教训注入/编排失败隔离/沙箱/限流
+tests/           203 项，覆盖上下文/工具/知识/记忆/运行时/韧性/多Agent/API/评测/MCP/CLI/安全/触发器/脱敏/重启恢复/连接器/生命周期/注入红队/失败回归/多轮检索/增量索引/压缩评测/记忆评测/抽取评测/教训注入/编排失败隔离/沙箱/限流
 docs/            ARCHITECTURE.md
 ```
 

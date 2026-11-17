@@ -65,7 +65,7 @@ def build_llm(settings: Settings, override: LLMProvider | None = None) -> LLMPro
     if settings.llm_provider == "zhipu":
         return ZhipuLLM(api_key=settings.llm_api_key, model=settings.llm_model,
                         base_url=settings.llm_base_url, timeout_s=settings.llm_timeout_s)
-    return MockLLM()
+    return MockLLM(delay_s=settings.mock_delay_s)
 
 
 def build_state(settings: Settings, llm_provider: LLMProvider | None = None) -> AppState:

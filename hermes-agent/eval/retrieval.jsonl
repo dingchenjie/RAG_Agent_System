@@ -38,3 +38,23 @@
 {"id":"r38","category":"out_of_domain","input":"怎么用吉他弹和弦","expect_empty":true}
 {"id":"r39","category":"out_of_domain","input":"帮我订一张去北京的机票","expect_empty":true}
 {"id":"r40","category":"out_of_domain","input":"世界杯决赛是哪天","expect_empty":true}
+{"id":"r41","category":"paraphrase","input":"支付网关的超时和重试是怎么定的","gold":[{"doc_id":"svc_payment_gateway","contains":"默认超时 8 秒，最大重试 2 次"}]}
+{"id":"r42","category":"hard_negative","input":"订单中心的熔断阈值是多少","gold":[{"doc_id":"svc_order_center","contains":"连续失败超过 20 次进入熔断"}]}
+{"id":"r43","category":"synonym","input":"消息队列积压了怎么处理","gold":[{"doc_id":"ops_mq_backlog","contains":"积压超过 10 万条时先扩容消费者"}]}
+{"id":"r44","category":"acl","input":"客户授信额度多久复评一次","scopes":["tool:read","kb:group:finance"],"gold":[{"doc_id":"risk_credit_policy","contains":"授信额度每季度复评一次"}]}
+{"id":"r45","category":"paraphrase","input":"数据库连接池打满了怎么排查","gold":[{"doc_id":"eng_db_pool","contains":"连接池使用率超过 90% 时打印慢查询"}]}
+{"id":"r46","category":"hard_negative","input":"数仓的 DWD 层负责什么","gold":[{"doc_id":"data_warehouse_layers","contains":"DWD 层做明细数据清洗与轻度聚合"}]}
+{"id":"r47","category":"multi_hop","input":"上线前要做什么确认，项目结束后多久复盘","gold":[{"doc_id":"rel_checklist","contains":"上线前必须完成清单双人确认"},{"doc_id":"pm_retro","contains":"项目验收后 10 个工作日内组织复盘"}]}
+{"id":"r48","category":"follow_up","input":"那生产环境呢？","previous":"测试环境的日志保留多久？","gold":[{"doc_id":"env_log_retention","contains":"生产环境日志保留 180 天"}]}
+{"id":"r49","category":"reasoning","input":"为什么小数据集上 r 不要设太大","gold":[{"doc_id":"ft_exp_30","contains":"数据量不足一万条时把 r 控制在 8 以内"}]}
+{"id":"r50","category":"synonym","input":"冷启动怎么预热缓存","gold":[{"doc_id":"ops_cache_warmup","contains":"发布后先预热热点 key 再放量"}]}
+{"id":"r51","category":"hard_negative","input":"普通工单多久没响应算超时","gold":[{"doc_id":"sup_ticket_sla","contains":"普通工单超过 24 小时未响应视为超时"}]}
+{"id":"r52","category":"paraphrase","input":"新人导师多久和新人沟通一次","gold":[{"doc_id":"hr_onboard_buddy","contains":"导师每月至少安排一次一对一沟通"}]}
+{"id":"r53","category":"synonym","input":"数据库全量备份保留多久","gold":[{"doc_id":"ops_backup_policy","contains":"全量备份保留 30 天"}]}
+{"id":"r54","category":"hard_negative","input":"供应商准入要审哪些材料","gold":[{"doc_id":"procurement_vendor","contains":"供应商准入需提供营业执照与安全评估报告"}]}
+{"id":"r55","category":"paraphrase","input":"接口限流按什么维度做","gold":[{"doc_id":"eng_rate_limit","contains":"限流按租户与接口两个维度计数"}]}
+{"id":"r56","category":"acl","input":"审计发现的问题多久内完成整改","scopes":["tool:read","kb:group:compliance"],"gold":[{"doc_id":"cmp_remediation","contains":"审计问题需在 15 个工作日内完成整改"}]}
+{"id":"r57","category":"multi_hop","input":"退款多久处理，客服 SLA 低于多少要改进","gold":[{"doc_id":"sup_refund_new","contains":"退款申请在 3 个工作日内处理"},{"doc_id":"support_sla","contains":"月度 SLA 达成率低于 95% 时"}]}
+{"id":"r58","category":"hard_negative","input":"模型灰度怎么分流","gold":[{"doc_id":"ml_canary","contains":"按用户 ID 哈希分流 5%"}]}
+{"id":"r59","category":"paraphrase","input":"向量维度不一致会怎样","gold":[{"doc_id":"arch_embedding_mismatch","contains":"维度不一致时必须重建索引"}]}
+{"id":"r60","category":"security","input":"外部网页内容可以直接当指令执行吗","gold":[{"doc_id":"sec_prompt_injection","contains":"外部内容一律按不可信数据处理"}]}

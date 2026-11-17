@@ -15,6 +15,8 @@
 把成功率、成本、P95 与各专项指标落盘，``--baseline`` 与历史基线对比，成功率
 下降超过 5 个百分点时退出码为 1。``--record-failures`` 会把本次失败用例连同
 模型/提示词版本追加到 JSONL，下一次迭代直接作为回归集重放。
+``--repeats`` 让端到端任务重复多轮并报告均值 ± 标准差；``--rerank-ab`` 额外用
+cross-encoder 重排跑一遍检索，对比 recall@k / MRR / nDCG（依赖缺失时跳过）。
 """
 from __future__ import annotations
 
@@ -41,6 +43,7 @@ from hermes.eval.lessons import (  # noqa: E402
     load_lesson_cases,
 )
 from hermes.eval.memory import evaluate_memory, load_memory_tasks  # noqa: E402
+from hermes.eval.metrics import aggregate_summaries  # noqa: E402
 from hermes.eval.orchestration import evaluate_orchestration_failures  # noqa: E402
 from hermes.eval.regressions import record_failures  # noqa: E402
 from hermes.eval.retrieval import evaluate_retrieval, load_retrieval_tasks  # noqa: E402
@@ -70,6 +73,10 @@ async def main() -> int:
                         help="与历史基线对比；成功率下降超过 0.05 时退出码 1")
     parser.add_argument("--retrieval-ab", action="store_true",
                         help="额外用 hashing 或云端 embedding 跑一遍检索，输出前后对比")
+    parser.add_argument("--rerank-ab", action="store_true",
+                        help="额外用 cross-encoder 重排跑一遍检索；依赖不可用时跳过")
+    parser.add_argument("--repeats", type=int, default=1,
+                        help="端到端评测重复轮数，报告均值 ± 标准差（真实模型建议 3）")
     args = parser.parse_args()
 
     base = Settings.from_env()
@@ -89,8 +96,25 @@ async def main() -> int:
     runner = EvalRunner(runtime=state.runtime, event_store=state.event_store,
                         dataset_path=args.dataset, orchestrator=state.orchestrator)
     tasks = runner.load_tasks()
-    report = await runner.run()
-    print(report.markdown())
+    rounds = max(1, args.repeats)
+    reports = []
+    for index in range(rounds):
+        reports.append(await runner.run())
+        if rounds > 1:
+            item = reports[-1].summary()
+            print(f"第 {index + 1}/{rounds} 轮：成功率 {item['success_rate']:.2%} / "
+                  f"P95 {item['latency_p95_ms']:.0f}ms / 成本 ${item['total_cost_usd']:.6f}")
+    report = reports[0]
+    if rounds == 1:
+        print(report.markdown())
+        summary = report.summary()
+    else:
+        summary = aggregate_summaries([item.summary() for item in reports])
+        print(f"\n{rounds} 轮汇总：成功率 {summary['success_rate']:.2%} ± "
+              f"{summary['success_rate_std']:.2%}"
+              f"（min {summary['success_rate_min']:.2%} / max {summary['success_rate_max']:.2%}） / "
+              f"P95 {summary['latency_p95_ms']:.0f} ± {summary['latency_p95_ms_std']:.0f}ms / "
+              f"成本 ${summary['total_cost_usd']:.6f} ± ${summary['total_cost_usd_std']:.6f}")
 
     retrieval = _run_retrieval(base)
     _print_retrieval(retrieval)
@@ -115,7 +139,6 @@ async def main() -> int:
         orchestration_failures = await _run_orchestration_failures(base)
         _print_orchestration_failures(orchestration_failures)
 
-    summary = report.summary()
     faith = summary["faithfulness_avg"]
     print(f"\n成功率 {summary['success_rate']:.2%} / 工具 F1 {summary['tool_f1']:.4f} / "
           f"忠实度 {'-' if faith is None else f'{faith:.4f}'} / "
@@ -124,12 +147,15 @@ async def main() -> int:
     retrieval_ab = None
     if args.retrieval_ab:
         retrieval_ab = _run_retrieval_ab(base, retrieval)
+    rerank_ab = None
+    if args.rerank_ab:
+        rerank_ab = _run_rerank_ab(base, retrieval)
 
     if args.record_failures:
         written = record_failures(report.to_dict(), tasks=tasks, path=args.record_failures)
         print(f"失败样本：新增 {written} 条 → {args.record_failures}")
 
-    baseline_payload = _baseline_payload(report, retrieval, extraction, base)
+    baseline_payload = _baseline_payload(report, retrieval, extraction, base, summary=summary)
     # 先对比再落盘：两者指向同一文件时，比较的应是上一轮的基线
     baseline_ok = True
     if args.baseline:
@@ -143,6 +169,9 @@ async def main() -> int:
 
     if args.json_out:
         payload = report.to_dict()
+        payload["summary"] = summary
+        if rounds > 1:
+            payload["rounds"] = [item.summary() for item in reports]
         payload["retrieval"] = retrieval
         payload["injection"] = injection
         payload["compression"] = compression
@@ -154,6 +183,8 @@ async def main() -> int:
             payload["orchestration_failures"] = orchestration_failures
         if retrieval_ab:
             payload["retrieval_ab"] = retrieval_ab
+        if rerank_ab:
+            payload["rerank_ab"] = rerank_ab
         Path(args.json_out).write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"明细已写入 {args.json_out}")
@@ -214,6 +245,25 @@ def _run_retrieval_ab(base: Settings, primary: dict) -> dict | None:
         "alternative": {"backend": alt_backend,
                         "recall_at_k": alt["recall_at_k"], "mrr": alt["mrr"],
                         "ndcg_at_k": alt["ndcg_at_k"]},
+    }
+
+
+def _run_rerank_ab(base: Settings, primary: dict) -> dict | None:
+    """对比 RRF 截断与 cross-encoder 重排；可选依赖缺失时跳过而不是中断评测。"""
+    primary_backend = base.rerank_backend
+    alt_backend = "rrf" if primary_backend == "cross-encoder" else "cross-encoder"
+    try:
+        alt = _run_retrieval(replace(base, rerank_backend=alt_backend))
+    except Exception as exc:  # noqa: BLE001 可选依赖不可用不应影响主评测
+        print(f"\n重排 A/B 跳过：{alt_backend} 不可用（{exc}）")
+        return None
+    _print_rerank_ab(primary, alt, primary_name=primary_backend, alt_name=alt_backend)
+    metrics = ("recall_at_k", "mrr", "ndcg_at_k")
+    return {
+        "primary": {"backend": primary_backend, **{key: primary[key] for key in metrics},
+                    "by_k": primary["by_k"]},
+        "alternative": {"backend": alt_backend, **{key: alt[key] for key in metrics},
+                        "by_k": alt["by_k"]},
     }
 
 
@@ -287,9 +337,10 @@ def _isolated(base: Settings, tmp: str, name: str) -> Settings:
     )
 
 
-def _baseline_payload(report, retrieval: dict, extraction: dict, base: Settings) -> dict:
-    summary = report.summary()
-    return {
+def _baseline_payload(report, retrieval: dict, extraction: dict, base: Settings,
+                      *, summary: dict | None = None) -> dict:
+    summary = summary or report.summary()
+    payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "provider": base.llm_provider,
         "model": base.llm_model,
@@ -297,6 +348,7 @@ def _baseline_payload(report, retrieval: dict, extraction: dict, base: Settings)
         "embedding": base.embedding_backend,
         "memory_extractor": base.memory_extractor,
         "tasks": summary.get("tasks", 0),
+        "repeats": summary.get("repeats", 1),
         "success_rate": summary.get("success_rate", 0.0),
         "tool_f1": summary.get("tool_f1", 0.0),
         "latency_p95_ms": summary.get("latency_p95_ms", 0.0),
@@ -304,6 +356,12 @@ def _baseline_payload(report, retrieval: dict, extraction: dict, base: Settings)
         "retrieval": {key: retrieval[key] for key in ("recall_at_k", "mrr", "ndcg_at_k")},
         "extraction": {key: extraction[key] for key in ("precision", "recall", "f1")},
     }
+    for key in ("success_rate", "latency_p95_ms", "total_cost_usd"):
+        for suffix in ("std", "min", "max"):
+            name = f"{key}_{suffix}"
+            if name in summary:
+                payload[name] = summary[name]
+    return payload
 
 
 def _compare_baseline(current: dict, path: Path) -> bool:
@@ -346,6 +404,19 @@ def _print_retrieval_ab(primary: dict, alt: dict, *, primary_name: str, alt_name
     print(f"\n检索 A/B（{primary_name} vs {alt_name}）：")
     for label, key in (("recall@5", "recall_at_k"), ("MRR", "mrr"), ("nDCG@5", "ndcg_at_k")):
         print(f"  {label} {primary[key]:.4f} → {alt[key]:.4f}（{alt[key] - primary[key]:+.4f}）")
+
+
+def _print_rerank_ab(primary: dict, alt: dict, *, primary_name: str, alt_name: str) -> None:
+    k = primary["k"]
+    print(f"\n重排 A/B（{primary_name} vs {alt_name}）：")
+    for label, key in ((f"recall@{k}", "recall_at_k"), ("MRR", "mrr"),
+                       (f"nDCG@{k}", "ndcg_at_k")):
+        print(f"  {label} {primary[key]:.4f} → {alt[key]:.4f}（{alt[key] - primary[key]:+.4f}）")
+    print("  recall@k 曲线：" + "；".join(
+        f"k={kk} {primary['by_k'][str(kk)]['recall_at_k']:.2%} → "
+        f"{alt['by_k'][str(kk)]['recall_at_k']:.2%}"
+        for kk in primary["ks"]
+    ))
 
 
 def _print_injection(result: dict) -> None:

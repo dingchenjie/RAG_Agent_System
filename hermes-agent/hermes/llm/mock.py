@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -33,6 +34,7 @@ class MockLLM(LLMProvider):
     script: list[ScriptStep] | None = None
     model: str = "mock-1"
     name: str = "mock"
+    delay_s: float = 0.0  # 故障演练/压测时模拟真实模型耗时
 
     async def chat(
         self,
@@ -42,6 +44,8 @@ class MockLLM(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int | None = None,
     ) -> LLMResponse:
+        if self.delay_s > 0:
+            await asyncio.sleep(self.delay_s)
         if self.script:
             step = self.script.pop(0)
             response = step(messages, tools) if callable(step) else step

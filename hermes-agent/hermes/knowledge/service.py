@@ -97,7 +97,10 @@ class KnowledgeService:
             gate["min_coverage"] = min_coverage
         if min_vector is not None:
             gate["min_vector"] = min_vector
-        hits = self.index.search(query, top_k=max(top_k, self.default_top_k),
+        # 交叉重排需要比最终 top-k 更宽的候选池，否则只是给 4 条结果换个顺序；
+        # RRF 的放大倍数为 1，保持原有召回行为不变。
+        candidate_k = max(top_k, self.default_top_k) * max(1, self.reranker.candidate_factor)
+        hits = self.index.search(query, top_k=candidate_k,
                                  acl_groups=acl_groups, **gate)
         return self.reranker.rerank(query, hits, top_k)
 

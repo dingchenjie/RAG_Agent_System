@@ -87,3 +87,11 @@ def test_mark_interrupted_ignores_finished_runs(settings):
     assert runs.mark_interrupted("run_done", "不应生效") is False
     assert runs.get_run("run_done")["state"] == "succeeded"
     db.close()
+
+
+def test_mock_delay_setting(monkeypatch):
+    """恢复演练靠 Mock LLM 延迟制造可 kill 窗口，配置必须从环境变量读得到。"""
+    from hermes.config import Settings
+
+    monkeypatch.setenv("HERMES_MOCK_DELAY_S", "1.5")
+    assert Settings.from_env().mock_delay_s == 1.5
