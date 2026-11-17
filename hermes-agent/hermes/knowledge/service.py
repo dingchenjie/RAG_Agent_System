@@ -70,6 +70,8 @@ class KnowledgeService:
             chars=sum(report.chars for report in reports),
             duration_ms=round(sum(report.duration_ms for report in reports), 2),
             doc_ids=[report.doc_id for report in reports],
+            embedded_chunks=sum(report.embedded_chunks for report in reports),
+            reused_chunks=sum(report.reused_chunks for report in reports),
         )
 
     def ingest_dir(self, directory: str | Path, *, version: str = "1") -> list[IngestReport]:

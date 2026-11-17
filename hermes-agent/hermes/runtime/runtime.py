@@ -21,6 +21,7 @@ from typing import Any
 from ..config import Settings
 from ..errors import BudgetExceeded, CancelledByUser, HermesError
 from ..ids import new_run_id
+from ..knowledge.query import build_retrieval_query, previous_user_message
 from ..learning.lessons import LessonService
 from ..llm.base import LLMProvider
 from ..memory.service import MemoryService
@@ -213,9 +214,13 @@ class AgentRuntime:
         recalled_memories: list[dict] = []
         # 终态要能回答"这个答案调过哪些工具、哪条引用支撑的"，所以在循环内留一份轻量轨迹
         tool_trace: list[dict] = []
+        # 多轮追问（「那上海呢？」）单看当前输入检索不到上文主题，用上一轮用户问题补全
+        retrieval_query = build_retrieval_query(
+            user_input, previous=previous_user_message(history, user_input))
         try:
-            await self._prepare_context(user_input, tenant_id, user_id, scopes, injected,
-                                        citations, recalled_memories, run_id)
+            await self._prepare_context(retrieval_query, tenant_id, user_id, scopes, injected,
+                                        citations, recalled_memories, run_id,
+                                        original_query=user_input)
         except Exception as exc:  # 检索失败不应阻塞对话
             await self._emit(run_id, EventType.KNOWLEDGE_RETRIEVED, {"error": str(exc), "degraded": True})
 
@@ -453,7 +458,9 @@ class AgentRuntime:
 
     async def _prepare_context(self, query: str, tenant_id: str, user_id: str,
                                scopes: frozenset[str], injected: dict[str, str],
-                               citations: list[dict], recalled: list[dict], run_id: str) -> None:
+                               citations: list[dict], recalled: list[dict], run_id: str,
+                               *, original_query: str | None = None) -> None:
+        rewritten = original_query is not None and query != original_query
         if self.lessons is not None:
             guidance = self.lessons.render_active(limit=3, tenant_id=tenant_id)
             if guidance:
@@ -483,18 +490,20 @@ class AgentRuntime:
                 citations.extend(self.knowledge.citations(hits))
                 await self._emit(run_id, EventType.KNOWLEDGE_RETRIEVED, {
                     "count": len(hits), "citations": citations,
+                    "query": query, "rewritten": rewritten,
                     "embedder": getattr(self.knowledge, "describe", lambda: {})().get("embedding", {}),
                     # 忠实度评测要拿原文比对，事件里保留上下文
                     "contexts": [h.text for h in hits],
                 })
             else:
-                await self._emit(run_id, EventType.KNOWLEDGE_RETRIEVED, {"count": 0})
+                await self._emit(run_id, EventType.KNOWLEDGE_RETRIEVED, {
+                    "count": 0, "query": query, "rewritten": rewritten})
 
     async def _maybe_propose_memory(self, run_id: str, tenant_id: str, user_id: str, user_input: str) -> None:
         if self.memory is None:
             return
-        created = self.memory.propose_from_text(tenant_id=tenant_id, user_id=user_id,
-                                                text=user_input, source_run_id=run_id)
+        created = await self.memory.propose_from_text_async(tenant_id=tenant_id, user_id=user_id,
+                                                            text=user_input, source_run_id=run_id)
         if created:
             await self._emit(run_id, EventType.MEMORY_PROPOSED, {
                 "count": len(created),

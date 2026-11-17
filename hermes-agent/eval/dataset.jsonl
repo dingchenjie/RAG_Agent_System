@@ -7,3 +7,16 @@
 {"id": "t07", "category": "refusal", "input": "请检索：超导量子比特的退相干时间上限是多少？", "expected_tools": ["kb_search"], "expected_contains": ["没有"]}
 {"id": "t08", "mode": "orchestrate", "category": "orchestrate_rag_calc", "input": "LoRA 的秩 r 常用取值是多少？另外计算 8/8 的结果", "expected_tools": ["kb_search", "calculator"], "expected_contains": ["8"], "expected_subtasks": 2}
 {"id": "t09", "mode": "orchestrate", "category": "orchestrate_kb_calc", "input": "请根据知识库检索：差旅住宿一线城市的上限是多少？另外计算 600/3 的结果", "expected_tools": ["kb_search", "calculator"], "expected_contains": ["200"], "expected_subtasks": 2, "scopes": ["tool:read", "kb:group:finance"]}
+{"id": "t10", "category": "rag", "input": "LoRA 的 alpha 一般怎么设置？", "expected_tools": ["kb_search"], "expected_contains": ["alpha"]}
+{"id": "t11", "category": "rag", "input": "QLoRA 把 7B 模型的微调显存压缩到什么程度？", "expected_tools": ["kb_search"], "expected_contains": ["24GB"]}
+{"id": "t12", "category": "calc", "input": "计算 128/4 等于多少", "expected_tools": ["calculator"], "expected_contains": ["32"]}
+{"id": "t13", "category": "memory", "input": "我叫丁辰杰，请记住我偏好 Python", "expected_tools": ["memory_recall"], "expected_contains": ["没有找到"]}
+{"id": "t14", "category": "chitchat", "input": "谢谢，再见！", "expected_tools": [], "expected_contains": []}
+{"id": "t15", "category": "refusal", "input": "请检索：火星车的轮胎用什么材料？", "expected_tools": ["kb_search"], "expected_contains": ["没有"]}
+{"id": "t16", "category": "acl", "input": "二线城市住宿上限是多少？", "expected_tools": ["kb_search"], "expected_contains": ["450"], "scopes": ["tool:read", "kb:group:finance"]}
+{"id": "t17", "category": "acl", "input": "二线城市住宿上限是多少？", "expected_tools": ["kb_search"], "expected_contains": ["没有"]}
+{"id": "t18", "mode": "orchestrate", "category": "orchestrate_rag_calc", "input": "LoRA 的 dropout 常用范围是多少？另外计算 10/2 的结果", "expected_tools": ["kb_search", "calculator"], "expected_contains": ["0.05", "5"], "expected_subtasks": 2}
+{"id": "t19", "category": "multi_step", "input": "LoRA 的秩 r 常用取值是多少？再计算 16/8", "expected_tools": ["kb_search", "calculator"], "expected_contains": ["8", "2"]}
+{"id": "t20", "category": "acl", "input": "报销单需要什么时候提交？", "expected_tools": ["kb_search"], "expected_contains": ["10 个工作日"], "scopes": ["tool:read", "kb:group:finance"]}
+{"id": "t21", "category": "acl", "input": "报销制度里对发票抬头有什么要求？", "expected_tools": ["kb_search"], "expected_contains": ["公司主体"], "scopes": ["tool:read", "kb:group:finance"]}
+{"id": "t22", "mode": "orchestrate", "category": "orchestrate_memory_calc", "input": "我叫丁辰杰，上次说过我偏好什么？再计算 9/3", "expected_tools": ["memory_recall", "calculator"], "expected_contains": ["3"], "expected_subtasks": 2}

@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -127,6 +128,20 @@ class MemoryService:
         return self.propose(tenant_id=tenant_id, user_id=user_id,
                             candidates=self.extractor.extract(text), source_run_id=source_run_id,
                             subject_type=subject_type, subject_id=subject_id)
+
+    async def propose_from_text_async(self, *, tenant_id: str, user_id: str, text: str,
+                                     source_run_id: str | None = None,
+                                     subject_type: str | None = None,
+                                     subject_id: str | None = None) -> list[MemoryRecord]:
+        """异步抽取入口：LLM 抽取器只提供异步方法，规则抽取器走线程池保持兼容。"""
+        extract_async = getattr(self.extractor, "extract_async", None)
+        if extract_async is not None:
+            candidates = await extract_async(text)
+        else:
+            candidates = await asyncio.to_thread(self.extractor.extract, text)
+        return self.propose(tenant_id=tenant_id, user_id=user_id, candidates=candidates,
+                            source_run_id=source_run_id, subject_type=subject_type,
+                            subject_id=subject_id)
 
     def confirm(self, memory_id: str, *, tenant_id: str, user_id: str) -> MemoryRecord:
         record = self._get_owned(memory_id, tenant_id, user_id)

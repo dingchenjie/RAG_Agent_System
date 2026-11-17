@@ -66,8 +66,9 @@ class ApiError(HermesError):
     code = "api_error"
 
     def __init__(self, message: str, *, code: str | None = None, status: int = 400,
-                 details: dict | None = None):
+                 details: dict | None = None, headers: dict[str, str] | None = None):
         super().__init__(message, code=code)
         self.status = status
         self.details = details or {}
+        self.headers = headers or {}
 

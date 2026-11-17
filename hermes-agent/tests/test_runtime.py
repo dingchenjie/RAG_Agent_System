@@ -112,3 +112,26 @@ def test_context_report_is_recorded(settings):
     result = asyncio.run(state.runtime.run(user_input="LoRA 的 alpha 一般怎么设置？"))
     assert result.context["final_tokens"] <= result.context["budget"]
     assert result.context["budget"] > 0
+
+
+def test_follow_up_uses_previous_question_for_retrieval(settings):
+    """同一会话里的「那上海呢？」应带上上一轮主题再检索。"""
+    state = build_state(settings, MockLLM())
+    ingest_seed_docs(state)
+    scopes = frozenset({"tool:read", "kb:group:finance"})
+
+    async def scenario():
+        first = await state.runtime.run(
+            user_input="差旅住宿一线城市的上限是多少？", scopes=scopes)
+        session_id = state.runs.get_run(first.run_id)["session_id"]
+        return await state.runtime.run(
+            user_input="那上海呢？", session_id=session_id, scopes=scopes)
+
+    second = asyncio.run(scenario())
+    events = [e for e in state.event_store.history(second.run_id)
+              if e.type.value == "knowledge.retrieved"]
+    assert events
+    payload = events[0].payload
+    assert payload["rewritten"] is True
+    assert "一线城市" in payload["query"]
+    assert payload["count"] >= 1

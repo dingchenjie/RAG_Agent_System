@@ -25,12 +25,13 @@ def _request_id(request: Request) -> str:
 
 
 def _error_response(request: Request, *, status: int, code: str, message: str,
-                    details: dict | None = None) -> JSONResponse:
+                    details: dict | None = None,
+                    headers: dict[str, str] | None = None) -> JSONResponse:
     body: dict = {"error": {"code": code, "message": message, "request_id": _request_id(request)}}
     if details:
         body["error"]["details"] = details
-    return JSONResponse(status_code=status, content=body,
-                        headers={"X-Request-Id": _request_id(request)})
+    merged = {"X-Request-Id": _request_id(request), **(headers or {})}
+    return JSONResponse(status_code=status, content=body, headers=merged)
 
 
 def install_error_handlers(app: FastAPI) -> None:
@@ -46,7 +47,8 @@ def install_error_handlers(app: FastAPI) -> None:
         logger.warning("[%s] %s %s -> %s %s", _request_id(request), request.method,
                        request.url.path, exc.status, exc.code)
         return _error_response(request, status=exc.status, code=exc.code,
-                               message=redact(exc.message), details=redact_obj(exc.details))
+                               message=redact(exc.message), details=redact_obj(exc.details),
+                               headers=exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation(request: Request, exc: RequestValidationError) -> JSONResponse:

@@ -10,6 +10,7 @@ import pytest
 
 from hermes.tools.base import ToolContext
 from hermes.tools.connectors import (
+    _blocked_ip,
     build_connector_tools,
     load_connector_defs,
     register_connectors,
@@ -91,6 +92,61 @@ def test_http_connector_blocks_unlisted_host_before_sending():
     assert result.ok is False
     assert result.code == "connector_rejected"
     assert calls == []
+
+
+def test_blocked_ip_classification():
+    assert _blocked_ip("10.0.0.7") == "private"
+    assert _blocked_ip("172.16.3.4") == "private"
+    assert _blocked_ip("192.168.1.10") == "private"
+    assert _blocked_ip("127.0.0.1") == "loopback"
+    assert _blocked_ip("169.254.169.254") == "link_local"
+    assert _blocked_ip("::1") == "loopback"
+    assert _blocked_ip("fe80::1") == "link_local"
+    assert _blocked_ip("::ffff:127.0.0.1") == "loopback"
+    assert _blocked_ip("93.184.216.34") is None
+
+
+def test_http_connector_rejects_private_dns(monkeypatch):
+    async def fake_resolve(host: str, port: int) -> list[str]:
+        return ["93.184.216.34", "10.0.0.5"]  # 混合解析：任一私网地址都拒绝
+
+    monkeypatch.setattr("hermes.tools.connectors._resolve_addresses", fake_resolve)
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, text="should-not-happen")
+
+    # transport=None → 走真实网络路径的 DNS 校验；请求在发出去之前就被拦下
+    specs = build_connector_tools([_http_def()])
+    result = asyncio.run(_registry(specs).execute("ticket_lookup", {"ticket_id": "T-1"}, _ctx()))
+    assert result.ok is False
+    assert result.code == "connector_rejected"
+    assert "10.0.0.5" in (result.error or "")
+    assert calls == []
+
+
+def test_http_connector_rejects_link_local_ipv6(monkeypatch):
+    async def fake_resolve(host: str, port: int) -> list[str]:
+        return ["fe80::1"]
+
+    monkeypatch.setattr("hermes.tools.connectors._resolve_addresses", fake_resolve)
+    specs = build_connector_tools([_http_def()])
+    result = asyncio.run(_registry(specs).execute("ticket_lookup", {"ticket_id": "T-1"}, _ctx()))
+    assert result.ok is False
+    assert result.code == "connector_rejected"
+    assert "link_local" in (result.error or "")
+
+
+def test_injected_transport_skips_dns_lookup(monkeypatch):
+    async def boom(host: str, port: int) -> list[str]:
+        raise AssertionError("注入 transport 时不应触发 DNS 解析")
+
+    monkeypatch.setattr("hermes.tools.connectors._resolve_addresses", boom)
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text="ok"))
+    specs = build_connector_tools([_http_def()], http_transport=transport)
+    result = asyncio.run(_registry(specs).execute("ticket_lookup", {"ticket_id": "T-1"}, _ctx()))
+    assert result.ok is True
 
 
 def test_connector_env_missing_fails_fast(monkeypatch):

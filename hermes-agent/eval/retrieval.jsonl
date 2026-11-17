@@ -11,5 +11,30 @@
 {"id":"r11","category":"hard_negative","input":"Beta 服务最多重试几次","gold":[{"doc_id":"beta_service","contains":"最大重试 3 次"}]}
 {"id":"r12","category":"synonym","input":"灰度发布第一次切多少流量","gold":[{"doc_id":"deploy_notes","contains":"先切 5% 流量"}]}
 {"id":"r13","category":"security","input":"生产环境可以用 root 账号运行服务吗","gold":[{"doc_id":"security_policy","contains":"禁止使用 root 账号"}]}
-{"id":"r14","category":"out_of_domain","input":"Zephyr 引擎的 turbine 温度阈值是多少","expect_empty":true}
+{"id":"r14","category":"out_of_domain","input":"Zephyr 引擎的 turbine 型号是什么","expect_empty":true}
 {"id":"r15","category":"out_of_domain","input":"请推荐几部科幻电影","expect_empty":true}
+{"id":"r16","category":"follow_up","input":"那上海呢？","previous":"差旅住宿一线城市的上限是多少？","scopes":["tool:read","kb:group:finance"],"gold":[{"doc_id":"finance_policy","contains":"一线城市住宿上限为每晚 600 元"}]}
+{"id":"r17","category":"follow_up","input":"它的默认超时呢？","previous":"Alpha 服务最多重试几次？","gold":[{"doc_id":"alpha_service","contains":"默认超时 30 秒"}]}
+{"id":"r18","category":"follow_up","input":"换成 r=16 呢？","previous":"LoRA 的秩 r 常用取值是多少？","gold":[{"doc_id":"lora_notes","contains":"最常用的取值是 8 或 16"}]}
+{"id":"r19","category":"paraphrase","input":"年假没休完能留到第二年吗","gold":[{"doc_id":"hr_leave_policy","contains":"最多结转 5 天到次年"}]}
+{"id":"r20","category":"paraphrase","input":"试用期一般是几个月","gold":[{"doc_id":"hr_onboarding","contains":"试用期为 3 个月"}]}
+{"id":"r21","category":"synonym","input":"发票丢了要怎么处理","gold":[{"doc_id":"finance_invoice_rules","contains":"需取得开票方提供的记账联复印件"}]}
+{"id":"r22","category":"synonym","input":"为什么自研索引而不用现成的向量数据库","gold":[{"doc_id":"arch_vector_store","contains":"选择自研而非引入向量数据库"}]}
+{"id":"r23","category":"multi_hop","input":"P1 故障多久内响应，复盘要几个工作日","scopes":["tool:read","kb:group:engineering"],"gold":[{"doc_id":"eng_oncall","contains":"要求 5 分钟内响应"},{"doc_id":"pm_retro","contains":"项目验收后 10 个工作日内组织复盘"}]}
+{"id":"r24","category":"multi_hop","input":"灰度放量 10% 之后观察多久可以全量，回滚先做什么","gold":[{"doc_id":"product_release_process","contains":"观察 24 小时无异常再全量"},{"doc_id":"deploy_notes","contains":"回滚时先摘除新版本实例"}]}
+{"id":"r25","category":"multi_hop","input":"客户投诉数据泄露该走哪个流程","gold":[{"doc_id":"support_escalation","contains":"涉及数据安全的问题跳过常规路径"},{"doc_id":"security_incident_response","contains":"发现疑似泄露后 1 小时内上报安全负责人"}]}
+{"id":"r26","category":"acl","input":"P5 的月薪带宽是多少","scopes":["tool:read","kb:group:hr"],"gold":[{"doc_id":"hr_compensation_band","contains":"P5 的月薪带宽为 18K 到 26K"}]}
+{"id":"r27","category":"acl","input":"研发部门年度预算有多少","scopes":["tool:read","kb:group:finance"],"gold":[{"doc_id":"finance_budget_2026","contains":"研发部门年度预算为 1200 万元"}]}
+{"id":"r28","category":"follow_up","input":"那退款呢？","previous":"购买后多久可以申请无理由退款？","gold":[{"doc_id":"support_refund","contains":"用户在购买后 7 天内可申请无理由退款"}]}
+{"id":"r29","category":"follow_up","input":"换成企业版呢？","previous":"专业版每席位多少钱？","gold":[{"doc_id":"product_pricing","contains":"企业版按年报价，包含私有化部署"}]}
+{"id":"r30","category":"hard_negative","input":"增值税专用发票要填哪些银行信息","gold":[{"doc_id":"finance_invoice_rules","contains":"需提供完整的开户行与账号"}]}
+{"id":"r31","category":"hard_negative","input":"单表数据量多少要归档","gold":[{"doc_id":"eng_database","contains":"单表数据量超过 2000 万行时触发归档"}]}
+{"id":"r32","category":"hard_negative","input":"SLA 达成率低于多少要提交改进方案","gold":[{"doc_id":"support_sla","contains":"月度 SLA 达成率低于 95% 时"}]}
+{"id":"r33","category":"out_of_domain","input":"今天上海天气怎么样","expect_empty":true}
+{"id":"r34","category":"out_of_domain","input":"特斯拉股价今天涨了吗","expect_empty":true}
+{"id":"r35","category":"out_of_domain","input":"红烧肉要炖多久","expect_empty":true}
+{"id":"r36","category":"out_of_domain","input":"梅西效力哪支球队","expect_empty":true}
+{"id":"r37","category":"out_of_domain","input":"给我讲个笑话吧","expect_empty":true}
+{"id":"r38","category":"out_of_domain","input":"怎么用吉他弹和弦","expect_empty":true}
+{"id":"r39","category":"out_of_domain","input":"帮我订一张去北京的机票","expect_empty":true}
+{"id":"r40","category":"out_of_domain","input":"世界杯决赛是哪天","expect_empty":true}

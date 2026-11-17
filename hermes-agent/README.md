@@ -22,7 +22,7 @@
 cd hermes-agent
 pip install -e ".[dev]"
 
-python -m pytest                                   # 140 项测试，全离线（Mock Provider）
+python -m pytest                                   # 200 项测试，全离线（Mock Provider）
 hermes ask "LoRA 的秩 r 通常设置为多少？"            # 自动入库种子知识库，打印答案 + 工具轨迹
 hermes ingest ./samples/lora.pdf                   # 真实 PDF：按页解析 → 分块 → 去冗余 → 入库
 hermes eval --fail-under 0.99                      # 离线评测 + CI 门禁（含忠实度）
@@ -44,6 +44,8 @@ $env:HERMES_RERANK       = "rrf"
 Remove-Item data\hermes.db -ErrorAction SilentlyContinue   # 换向量后端必须重建索引
 
 python scripts/run_eval.py --fail-under 0.99
+python scripts/run_eval.py --real --save-baseline eval/baselines/zhipu-glm-4-air.json
+python scripts/run_eval.py --retrieval-ab        # hashing vs 云端 embedding
 hermes ask "LoRA 低秩分解为什么能省显存？"
 ```
 
@@ -96,7 +98,7 @@ pip install -e ".[ragas]"       # RAGAS 忠实度（未装则用离线引用支�
    │              → 截断 → 审计(tool_audit)                                                      │
    │  内置：kb_search / kb_ingest / memory_recall / memory_write / calculator / clock / sandbox   │
    │  MCP：MCPToolBridge 把外部 MCP Server 工具动态注入，使用同一套权限/审计/事件链路              │
-   │  连接器：声明式 HTTP / CLI（JSON 配置），同样汇入这一条执行链路                               │
+   │  连接器：声明式 HTTP / CLI（JSON 配置，附录 A），与内置工具共用同一套执行链路                 │
    └───────────────┬─────────────────────────────────────────────────────────────────────────────┘
                    │
    ┌───────────────▼───────────────┐   ┌──────────────────────────┐   ┌──────────────────────────┐
@@ -120,19 +122,19 @@ pip install -e ".[ragas]"       # RAGAS 忠实度（未装则用离线引用支�
 | **Agent Runtime / Harness** | ReAct 循环 + 步数/预算限制；优先级调度器；SSE 事件流；`CancelToken` 打断 in-flight LLM 与工具 | `runtime/runtime.py`、`runtime/scheduler.py`、`runtime/cancel.py` |
 | **上下文工程** | 分层预算；旧工具结果头尾保留；抽取式摘要；当前轮整段保护；超预算成组丢弃且不破坏 tool_calls 配对；页面信息按不可信内容隔离、企业规则作为约束注入 | `runtime/context.py`、`runtime/runtime.py` |
 | **工具 / Function Calling / MCP** | 声明式契约（args_model/version/scopes/timeout/retries/side_effect/requires_confirmation）；Pydantic 强校验；scope 鉴权；稳定错误码；MCP 双向（客户端桥接 + 自建 FastMCP Server） | `tools/base.py`、`tools/registry.py`、`tools/mcp_bridge.py`、`mcp_server/` |
-| **连接器体系（HTTP / CLI）** | 用 JSON 声明把已有 HTTP 接口与 CLI 命令注册成工具：host 白名单、禁重定向、`${ENV}` 注入密钥、命令不经 shell、子进程最小环境变量；自动复用权限/超时/重试/截断/审计/脱敏 | `tools/connectors.py`、`config/connectors.example.json` |
+| **连接器（API / CLI）** | 用 JSON 声明把已有 HTTP 接口与 CLI 命令注册成工具，复用统一权限 / 超时 / 重试 / 截断 / 审计；定位、安全边界与面试口径见附录 A | `tools/connectors.py`、`config/connectors.example.json` |
 | **沙箱与安全** | AST 白名单求值 + `python -I -S` 独立子进程 + 超时强杀；工具结果截断与审计；上传大小/类型白名单；检索结果与工具输出按不可信内容隔离（`<untrusted>` + 安全条款） | `tools/sandbox.py`、`tools/builtin.py`、`security/untrusted.py` |
 | **鉴权与多租户** | API Key → `Principal(tenant, user, scopes)`；`off/api_key` 两种模式；scope + 租户归属双重校验，越权统一 404；普通调用方不能自报 scope | `security/auth.py`、`api/app.py` |
 | **经验沉淀（闭环）** | 运行结束按规则提炼教训（工具不稳定 / 无引用作答 / 规划过长）→ `pending` → 人工 `hermes lessons --activate` → 注入最近 3 条 `[历史教训]` | `learning/lessons.py`、`cli.py` |
-| **RAG 全链路** | PDF/HTML/DOCX/MD 解析 → 标题感知分块 → 余弦去冗余 → BM25 + 向量 + RRF → 相关性门控 → 可选交叉重排 → `[n]《标题》doc@v1#chunk` 引用 → 文档级 ACL → 版本覆盖；**版本治理**：`GET /v1/knowledge/documents/{id}/versions` 列历史版本（含 `active`/chunks 数），`POST .../versions/{version}/activate` 与 `hermes kb DOC --activate VER` 一键回滚 | `knowledge/loaders.py`、`splitter.py`、`index.py`、`rerank.py`、`api/app.py`、`cli.py` |
+| **RAG 全链路** | PDF/HTML/DOCX/MD 解析 → 标题感知分块 → 余弦去冗余 → BM25 + 向量 + RRF → 相关性门控 → 可选交叉重排 → `[n]《标题》doc@v1#chunk` 引用 → 文档级 ACL → 版本覆盖；**多轮追问**按上一轮问题补全检索 query（如"那上海呢？"），**增量索引**让未变更 chunk 复用旧向量，只对新增内容调 embedding；**版本治理**：`GET /v1/knowledge/documents/{id}/versions` 列历史版本（含 `active`/chunks 数），`POST .../versions/{version}/activate` 与 `hermes kb DOC --activate VER` 一键回滚 | `knowledge/loaders.py`、`splitter.py`、`index.py`、`query.py`、`rerank.py`、`api/app.py`、`cli.py` |
 | **向量抽象与降级** | `Embedder` 协议三实现（hashing / bge / 智谱），`auto` 顺序：显式配置 > 本地语义模型 > 智谱 Key > 哈希；维度不一致显式报 `embedding_mismatch` | `knowledge/embedding.py` |
-| **长期记忆** | 规则抽取 → `pending`；确认后 `active`；`correct` 新版本 + `supersedes`；`forget` 软删；打分 = 余弦 + 词法 + 时效 + 置信 + 业务对象匹配；记忆可绑定 `subject_type/subject_id`（如客户），召回按对象加权、冲突只在同对象内判定；强制 tenant + user 隔离 | `memory/service.py` |
+| **长期记忆** | 规则 / LLM 抽取 → `pending`；确认后 `active`；`correct` 新版本 + `supersedes`；`forget` 软删；打分 = 余弦 + 词法 + 时效 + 置信 + 业务对象匹配；记忆可绑定 `subject_type/subject_id`（如客户），召回按对象加权、冲突只在同对象内判定；强制 tenant + user 隔离 | `memory/service.py` |
 | **多步可靠性** | 有副作用工具先预演 → `paused` → `/confirm`；幂等键按 run 作用域；超时/退避/熔断；每步 checkpoint，进程重启 `resume`；启动对账把 `queued` 自动重入队、`running` 标记 `interrupted` 并发可恢复事件（不自动重放） | `runtime/runtime.py`、`llm/resilience.py`、`api/app.py` |
 | **多 Agent 调度** | 主 Agent 规则规划 → 子 Agent 并行（最小工具集 + 信号量）→ 黑板汇总 → 单点失败隔离 | `agents/orchestrator.py`、`agents/blackboard.py` |
-| **可观测 / 评测** | 事件全序 + span + Prometheus；token/成本预算；`GET /v1/usage` 按租户聚合 token/成本/状态分布（普通用户只能看自己租户）；事件保留策略（`HERMES_EVENT_RETENTION_DAYS` 启动清理中间事件，保留终态）；工具调用事件记录工具版本；`GET /v1/runs/{id}` 返回 `citations` 与 `tool_calls`；`EvalRunner`（成功率、工具 P/R/F1、引用覆盖、忠实度、P50/P95）+ **检索专项 `recall@k`/`MRR`（分类 + 门控扫描）** + **间接注入红队（越权工具/标记泄漏）** + **失败样本回归沉淀（模型/提示词版本口径）**；`/replay` 时间线、`/diff` 两版对比、CLI `hermes replay --against`；`--fail-under` 门禁 | `observability/*`、`eval/*`、`api/app.py`、`cli.py` |
+| **可观测 / 评测** | 事件全序 + span + Prometheus；token/成本预算；`GET /v1/usage` 按租户聚合 token/成本/状态分布（普通用户只能看自己租户）；事件保留策略（`HERMES_EVENT_RETENTION_DAYS` 启动清理中间事件，保留终态）；工具调用事件记录工具版本；`GET /v1/runs/{id}` 返回 `citations` 与 `tool_calls`；`EvalRunner`（成功率、工具 P/R/F1、引用覆盖、忠实度、P50/P95）+ **检索专项 `recall@k`/`MRR`/`nDCG@k`（分类 + 门控扫描 + embedding A/B）** + **间接注入红队（越权工具/标记泄漏）** + **上下文压缩专项（事实保留率/压缩比）** + **长期记忆专项（冲突/TTL/跨租户隔离）** + **记忆抽取专项（规则 vs LLM 的 P/R/F1 与负例误抽）** + **教训注入 A/B（无教训 / 注入已确认教训）** + **编排失败隔离（部分失败降级 / 全部失败显式报错，故障注入）** + **真实模型基线（`--real`/`--save-baseline`/`--baseline` 门禁）** + **失败样本回归沉淀（模型/提示词版本口径）**；`/replay` 时间线、`/diff` 两版对比、CLI `hermes replay --against`；`--fail-under` 门禁 | `observability/*`、`eval/*`、`api/app.py`、`cli.py` |
 | **主动触发** | interval 触发器（≥10s）：`triggers` 表 + `TriggerService.due()` 原子推进 `next_fire_at` + API 进程内后台扫描；触发与 HTTP 共用 `enqueue_run`，不新增建 run 入口；多副本需分布式锁（已列为边界） | `triggers.py`、`api/app.py`、`cli.py` |
 | **凭据保护** | 事件落库、工具审计、错误响应前统一脱敏（Authorization / `sk-*` / key-value 敏感字段）；轨迹可读但不可泄密 | `security/redact.py` |
-| **工程化 / 交付** | 单一 CLI 入口；pyproject extras 分层依赖；Docker + compose；ruff + 覆盖率门禁 + GitHub Actions；140 项离线测试 | `cli.py`、`pyproject.toml`、`Dockerfile`、`.github/workflows/ci.yml` |
+| **工程化 / 交付** | 单一 CLI 入口；pyproject extras 分层依赖；Docker + compose；ruff + 覆盖率门禁 + GitHub Actions；200 项离线测试 | `cli.py`、`pyproject.toml`、`Dockerfile`、`.github/workflows/ci.yml` |
 
 ---
 
@@ -161,11 +163,13 @@ pip install -e ".[ragas]"       # RAGAS 忠实度（未装则用离线引用支�
 - **重排默认 RRF**：两路召回无标定融合，零依赖可测；`CrossEncoderReranker` 作为可选后端（`HERMES_RERANK=cross-encoder`）。
 - **忠实度默认离线**：逐句"引用支撑度"（n-gram 覆盖率）替代 LLM 判官，可回归、零成本；RAGAS 通过 optional 适配器接入。
 - **确定性 Planner 而非"让模型自由规划"**：`Orchestrator` 只依赖 `planner.plan(goal, available) -> Plan` 这一个方法（构造参数目前标注为 `RulePlanner`，抽成 `Protocol` 只是两行代码），调度、并行、黑板、汇总都不用改——这就是"可替换"的具体落点。
-- **Mock Provider 不是玩具**：它是"可回归"的前提——140 项测试与 9 条评测在没有网络和 Key 时断言完整调用链（工具顺序、取消、恢复、熔断）。
+- **Mock Provider 不是玩具**：它是"可回归"的前提——200 项测试与 22 条端到端评测（另有检索/注入/压缩/记忆/抽取/教训注入六组专项）在没有网络和 Key 时断言完整调用链（工具顺序、取消、恢复、熔断）。
 - **幂等键按 run 作用域**：读类工具结果随时间变化，跨 run 复用缓存会返回过期事实（开发中真实踩到）。
 - **上下文裁剪必须保配对**：丢 `assistant.tool_calls` 必须连同其 `tool` 结果一起丢，否则 OpenAI 兼容接口直接判请求非法。
 - **事件 seq 分配必须原子**：并发子 Agent 下 `MAX(seq)+1` 与 `INSERT` 之间有竞态，已用锁包住（全量测试曾因此偶发失败）。
-- **门控阈值由评测扫描决定，而不是拍脑袋**：检索专项同时扫 `min_coverage`，`0.2` 在 15 条集合上 recall@5 100% 且越界 2/2；原来的 `0.34` 会漏掉跨 chunk 的两条（recall 84.62%）。默认值已按扫描结果调整到 `0.2`，并把整条曲线留在评测输出里，方便换 embedding 后重新校准。
+- **门控阈值由评测扫描决定，而不是拍脑袋**：检索专项同时扫 `min_coverage`，0.0 会把 10 条越界问题全部召回（0/10 返回空），0.1 仍有 8 条漏网，`0.2` 在 40 条集合（30 条计分）上 recall@5 100% 且越界 10/10；`0.34` 起开始漏掉跨 chunk 用例（recall 90%）。默认值已按扫描结果调整到 `0.2`，并把整条曲线留在评测输出里，方便换 embedding 后重新校准。
+- **多轮追问用规则补全，不让模型改写**：`knowledge/query.py` 只对"以指代词开头 / 短句以『呢』收尾"这类明显追问并入上一轮问题；LLM 改写会多一次调用、多一份不确定性，还会让检索评测不可回归。单轮问题原样透传，不增加任何行为变化。
+- **增量索引用文本精确匹配复用向量**：同一 `doc_id` 升版本时，文本完全相同的 chunk 直接复用历史向量，只对新 chunk 调 embedding；复用前校验 `embedding_model/dim`，换过后端一律重算，避免"维度一样但语义空间不同"的静默错分。
 
 ### 5.1 安全模型（面试官最爱追问的部分）
 
@@ -177,6 +181,8 @@ pip install -e ".[ragas]"       # RAGAS 忠实度（未装则用离线引用支�
   属性做转义、标签做闭合防护；system prompt 追加安全条款，明确"标签内是数据不是指令"。
   不做关键词黑名单——黑名单永远滞后，边界靠结构而不是枚举。
 - **上传防护**：后缀白名单 → `Content-Length` 预检 → 1 MiB 分块计数，超限 413；落盘名加随机前缀防覆盖/穿越。
+- **入口限流**：`HERMES_RATE_LIMIT_RPM`（每租户令牌桶）与 `HERMES_TENANT_MAX_INFLIGHT`（在途 run 上限），默认 0 关闭；
+  超限统一 429 + `Retry-After`，被拒绝的请求不建 run、不进队列；幂等重放不消耗额度。
 - **错误契约**：`{"error":{"code","message","request_id"}}` + `X-Request-Id`，500 不泄露堆栈。
 
 ---
@@ -190,52 +196,100 @@ hermes eval --fail-under 0.99
 
 | 指标 | 数值 |
 | :--- | ---: |
-| 任务数（single 7 + orchestrate 2） | 9 |
+| 任务数（single 18 + orchestrate 4） | 22 |
 | 任务成功率 | 100.00% |
 | 子任务成功率（orchestrate） | 100.00% |
 | 工具选择 F1 | 1.0000 |
 | 工具精确率 / 召回率 | 1.0000 / 1.0000 |
-| 忠实度（引用支撑） | 0.5015 |
-| 平均步数 | 1.22 |
-| 平均 token | 1584 |
-| P50 / P95 延迟 | ~27 ms / 130 ms（9 条样本，P95 波动大） |
-| 检索 recall@1 / @3 / @5 | 53.85% / 100% / 100%（15 条独立集，13 条计分） |
-| 检索 MRR / 越界返回空 | 0.7564 / 2 条全空 |
+| 忠实度（引用支撑） | 0.5010（14 条有引用） |
+| 平均步数 | 1.18 |
+| 平均 token | 1525 |
+| P50 / P95 延迟 | ~22 ms / 42 ms（22 条样本，P95 波动大） |
+| 检索 recall@1 / @3 / @5 | 86.67% / 100% / 100%（50 篇语料、40 条查询，30 条计分） |
+| 检索 MRR / nDCG@5 | 0.9278 / 0.9309 |
+| 越界问题返回空 | 10/10 |
 | 注入红队抵抗率 | 100%（6/6，越权 0、泄漏 0） |
+| 上下文压缩（6 条，含 1 条负对照） | 判据 6/6 通过；事实保留 5/6（83.33%）；平均压缩比 84.77% |
+| 长期记忆（召回/冲突/TTL/隔离） | 100%（6/6） |
+| 记忆抽取（规则） | 精确率 100% / 召回 52.63% / F1 68.97%；负例误抽 0 |
 ```
+
+两组横向对照（同一套评测集，只换一个变量）：
+
+- **检索 embedding A/B（`--retrieval-ab`）**：hashing 与智谱 `embedding-3` 的 recall@5 都是 100%、MRR 相同，nDCG@5 分别为 0.9309 / 0.9285。语料已经饱和，说明默认 BM25 + RRF 足够；cross-encoder 重排因本机未装 `sentence-transformers` 没有跑，不做"纸面提升"。
+- **记忆抽取 A/B**：规则抽取召回 52.63%，漏掉"项目/团队"这类没有固定句式的语义信息；LLM 抽取（glm-4-air，`temperature=0`）在 20 条上 P/R/F1 均为 100%，7 条负例（寒暄、一次性指令、注入、代码、第三方邮箱）全部沉默。两者都只产出 `pending` 候选，确认后才写入长期记忆。
 
 用途：**回归基线**。固定 Mock + 固定哈希向量，同一份代码永远得到同一组数字，改检索或改提示后掉下去就是明确信号。
 延迟是本地 SQLite + Mock，**不代表真实模型时延**。
 
-### 6.2 有 Key 模式（智谱 glm-4-air + embedding-3，实测）
+### 6.2 有 Key 模式（智谱 glm-4-air，实测）
 
-同一套评测集（当时 7 条 single 任务）、同一份代码，只换 Provider 和环境变量，2026-11 实测：
+同一套 22 条数据集（single 18 + orchestrate 4）、同一份代码，只换 Provider 和环境变量，2026-11 用 `--real` 实测：
 
-| 指标 | Mock / 哈希 | glm-4-flash | **glm-4-air（默认）** |
-| --- | ---: | ---: | ---: |
-| 任务成功率 | 100% | 57.14% | **100%** |
-| 工具选择 F1 | 1.0000 | 0.8095 | **1.0000** |
-| 忠实度（引用支撑） | 0.7168 | 0.3571 | 0.3952 |
-| 平均 token | ~1049 | 2666 | 2956 |
-| P95 延迟 | 24 ms | 9151 ms | **4851 ms** |
-| 7 任务总成本 | $0 | $0.0019 | $0.0103 |
+| 指标 | Mock / 哈希 | **glm-4-air（默认）** |
+| --- | ---: | ---: |
+| 任务成功率 | 100% | **95.45%（21/22）** |
+| single / orchestrate 成功率 | 100% / 100% | 94.44%（17/18）/ **100%（4/4）** |
+| 工具选择 F1 | 1.0000 | **0.9545** |
+| 忠实度（引用支撑） | 0.5010 | 0.3845（14 条有引用） |
+| 平均 token | 1525 | 2356 |
+| P50 / P95 延迟 | 22 ms / 42 ms | 2413 ms / **8927 ms** |
+| 22 任务总成本 | $0 | **$0.023792** |
 
-**两次真实模型跑出来的问题，比数字本身更有价值：**
+**真实模型暴露的问题，比数字本身更有价值：**
 
-1. `glm-4-flash` 只有 57%：该检索的不检索（凭记忆直接答 "LoRA 的 r 通常是 8"），多步题跳过检索只做计算，同一工具还会重复调用。**架构没错，是小模型指令遵循不够**——这正好说明为什么"能跑起来"和"能稳定跑对"是两件事。
-2. 加固提示词（"涉及具体事实第一轮必须 kb_search，禁止凭记忆回答；同工具同参数不重复调用；查资料+算数两步都要做"）后 flash 升到 71.4%，换 `glm-4-air` 到 100%。所以默认模型定为 air，不是拍脑袋选的。
-3. 真实口径的忠实度（0.3952）明显低于 Mock（当时 0.7168），原因是拒答类题目（t04/t07）和闲聊（t05）本来就没有引用，指标按 0 计入。**这是指标口径问题，不是答案变差了**——看忠实度要按类别分，别只看总分。
+1. **唯一失败是"声称做了但没做"**：t13（"我叫丁辰杰，请记住我偏好 Python"）没有调用 `memory_recall`，却回答"已经记住了"。记忆抽取在后台只写入了 `pending` 候选，未确认不可召回——这是典型的工具调用幻觉。失败样本已由 `--record-failures` 落到 [failures.jsonl](file:///e:/RAG_Agent_System%20-%20副本%20(2)/hermes-agent/eval/regressions/failures.jsonl)，下一轮直接重放。
+2. **另一条是格式差异，不是能力回归**：t20 回答"10个工作日内"、期望写的是"10 个工作日"。评测改为空白不敏感匹配（`_keyword_matches`）并补了单测，避免把排版差异算成失败。
+3. **orchestrate 在真实模型下 4/4**：规则 Planner 把"检索 + 计算"拆成子任务，并行执行后汇总；single 的 1 条失败没有扩散成编排失败。
 
-跑法见 §1.B。数字会随模型版本和网络变化，建议自己重跑一遍再引用。
+历史对照（0.2.6，7 条 single）：`glm-4-flash` 57.14% → 加固提示词 71.43% → `glm-4-air` 100%。结论是"先修指令遵循、再换模型"；当时 P95 4851ms、成本 $0.0103，与当前 22 条口径不可直接比较。
 
-评测集后来新增了 2 条 `mode: "orchestrate"` 的任务（t08/t09），真实模型口径尚未重跑，
-所以上表只覆盖 single 模式；orchestrate 的回归基线见 §6.1（Mock + 规则规划）。
+跑法：
+
+```bash
+HERMES_LLM_PROVIDER=zhipu python scripts/run_eval.py --real \
+  --save-baseline eval/baselines/zhipu-glm-4-air.json
+```
+
+`--baseline` 会对比成功率、P95 与成本，成功率下降超过 5 个百分点退出码为 1；数字会随模型版本和网络变化，建议自己重跑一遍再引用。
+
+### 6.3 压测与延迟分解（本机，2026-11）
+
+`scripts/loadtest.py` 打本机 API；`scripts/latency_breakdown.py` 只读 `events` 表，把一次 run 拆成 LLM / 工具 / 其他（上下文、记忆、落库、SSE 派发），不新增埋点。
+
+| 场景 | 规模 | 成功率 | 吞吐 | P50 | P95 | P99 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| single（mock） | 20 runs / 5 并发 | 100% | 25.2 run/s | 0.17s | 0.26s | 0.26s |
+| single（mock） | 50 runs / 20 并发 | 100% | 28.1 run/s | 0.63s | 0.71s | 0.77s |
+| orchestrate（mock） | 10 runs / 3 并发 | 100% | 33.1 run/s | 0.06s | 0.18s | 0.18s |
+| orchestrate（mock） | 30 runs / 10 并发 | 100% | 50.6 run/s | 0.15s | 0.21s | 0.28s |
+| single（glm-4-air） | 5 runs / 1 并发 | 100% | 0.56 run/s | 1.62s | 2.35s | 2.35s |
+
+事件轨迹分段（P50）：
+
+| 口径 | LLM | 工具 | 其他 |
+| :--- | ---: | ---: | ---: |
+| mock（60 runs） | 28.7% | 0.2% | 68.0% |
+| glm-4-air（5 runs） | **98.7%** | 0.0% | 1.3% |
+
+怎么读这三张表：
+
+- **mock 下"其他"占大头**：LLM 瞬时返回，耗时主要在上下文构建、记忆召回、SQLite 落库与 SSE 派发，不能拿来推断线上时延；
+- **真实模型下瓶颈非常明确**：LLM 生成占 98.7%，检索/工具/调度合计不到 2%。所以优化方向是提示词长度、输出长度与模型选择，而不是"换向量库"；
+- **容量拐点**：mock 下 5 并发 P50 0.17s，20 并发升到 0.63s，吞吐平台约 28 run/s，说明单进程 + SQLite 单写锁开始排队；真实模型下瓶颈会先落在上游 LLM 配额，而不是这里。
+
+```bash
+python -m uvicorn hermes.api.app:app --port 8010
+python scripts/loadtest.py --runs 20 --concurrency 5
+python scripts/loadtest.py --runs 50 --concurrency 20
+python scripts/latency_breakdown.py --db data/hermes.db --limit 20
+```
 
 ---
 
 ## 7. 已知边界（不吹）
 
-- `python_sandbox` 是 **AST 白名单 + 独立子进程 + 超时强杀**，不是容器级隔离；生产应换 gVisor/Firecracker 或独立执行服务。
+- `python_sandbox` 有两档：默认 `process`（AST 白名单 + `python -I -S` 子进程 + 超时杀进程树 + POSIX rlimit 内存/CPU/文件大小/句柄数 + 临时目录 + 环境变量白名单）；设 `HERMES_SANDBOX_MODE=docker` 切容器后端（`--network none`、`--memory`、`--cpus 0.5`、`--pids-limit 64`、只读根 + tmpfs、非 root）。Windows 的进程模式只做超时与输出截断，内存上限需要 Docker 模式；这不是内核级隔离，生产仍建议 gVisor/Firecracker 或独立执行服务。
 - 默认 `HashingEmbedder` 是哈希特征，不是语义模型；同义改写召回弱，靠 BM25 + 门控兜底。
 - `CrossEncoderReranker` / RAGAS / bge 均为可选依赖，默认不启用；开启后效果依赖模型质量。
 - Planner 目前是规则版（`RulePlanner`）；接 LLM 规划器的落点只有一个方法 `plan(goal, available) -> Plan`，没接的原因是它会破坏评测的可回归性（同一目标两次规划可能不同），接之前要先补"规划结果快照 + 重规划上限"。
@@ -247,8 +301,6 @@ hermes eval --fail-under 0.99
 - **触发器是单进程 interval**：循环跑在 API 进程内，靠 SQLite 单写者保证同机不重复触发；停止服务期间错过的周期直接跳过，不补跑。多副本部署需要分布式锁（如 Redis `SETNX`）才能避免重复触发。只做 interval 不做 cron 表达式，是因为真正难的是"触发→去重→调度→可观测"这条链路，表达式解析可以在此之上叠加。
 - **脱敏是模式匹配**：能覆盖常见凭据形态（`Authorization`、`sk-*`、`password=` 等）与已知敏感字段名，但无法识别自定义格式的密钥；新增工具时若参数名不在名单内，需要补充 `security/redact.py`。
 - **`running` 不自动重放**：重启对账只把在途 run 标记 `interrupted` 并发可恢复事件，是否 `resume` 由人或上层决定——工具可能已有不可逆副作用，自动重跑有重复执行风险；`queued` 尚未开始执行，因此按 at-least-once 自动重新入队。
-- **连接器不做 SSRF 的全量防护**：HTTP 连接器只允许 `https` + 显式 `allowed_hosts`，禁跟随重定向、限制响应大小；不做 DNS 解析后的私网 IP 拦截，若目标网段不可信，应在出口网关做二次校验。
-- **CLI 连接器不是任意命令执行**：命令由运营方写进配置，模型只能填 schema 声明的参数值，且不经 shell、只继承最小环境变量；不接受模型自行生成命令。
 - **事件保留会牺牲完整回放**：`HERMES_EVENT_RETENTION_DAYS`（默认 30 天）只清理**已结束** run 的中间事件，保留 `run.created/completed/failed/cancelled` 终态（含 `citations`/`tools` 快照）。因此超出保留期的 run 仍能看终态与引用/工具关联，但 `/replay` 不再有逐步中间步骤。要长期完整回放，应把事件导出到对象存储/Kafka，而不是无限留在 SQLite。
 
 ---
@@ -258,25 +310,25 @@ hermes eval --fail-under 0.99
 ```
 hermes/
   runtime/       runtime(ReAct循环) context(上下文工程) scheduler cancel store
-  tools/         base(契约) registry(九道关) builtin sandbox mcp_bridge connectors(HTTP/CLI 声明式)
-  knowledge/     loaders splitter embedding rerank index service
+  tools/         base(契约) registry(九道关) builtin sandbox mcp_bridge connectors(HTTP/CLI，附录 A)
+  knowledge/     loaders splitter embedding rerank index service query(多轮追问补全)
   memory/        extractor service(确认/纠错/TTL/隔离)
   learning/      lessons(教训提炼/人工确认/注入)
-  security/      auth(API Key→Principal) untrusted(不可信内容隔离) redact(凭据脱敏)
+  security/      auth(API Key→Principal) ratelimit(租户限流/并发配额) untrusted(不可信内容隔离) redact(凭据脱敏)
   agents/        orchestrator(规划+并行+汇总) blackboard
   llm/           base mock zhipu resilience(超时/退避/熔断)
   observability/ events(全序事件) tracing(spans/用量) metrics(Prometheus)
-  eval/          runner metrics replay faithfulness retrieval(recall@k/MRR)
+  eval/          runner metrics replay faithfulness retrieval(recall@k/MRR) injection compression memory
   api/           app(FastAPI + SSE + 知识库/触发器) errors(错误契约)
   mcp_server/    server(自建 stdio MCP Server)
   triggers.py    周期触发器（interval + 到期原子推进）
   cli.py         唯一人工入口：ask / chat / ingest / eval / serve / lessons / replay / triggers / kb
 knowledge_base/  种子 md（lora_notes、finance_policy）
 config/          connectors.example.json（HTTP / CLI 连接器示例，不默认加载）
-eval/            dataset.jsonl（9 条端到端：single 7 + orchestrate 2）；retrieval.jsonl（15 条检索，13 条计分 + 2 条越界）与 retrieval_corpus.json；injection.jsonl（6 条红队）；regressions/（失败样本，按需生成）
-scripts/         demo.py run_eval.py mcp_demo.py ingest.py loadtest.py
+eval/            dataset.jsonl（22 条端到端：single 18 + orchestrate 4）；retrieval.jsonl（40 条检索，30 条计分 + 10 条越界）与 retrieval_corpus.json（50 篇）；injection.jsonl（6 条红队）；compression.jsonl（6 条压缩，含 1 条负对照）；memory.jsonl（6 条记忆）；extraction.jsonl（20 条抽取，13 正 + 7 负）；lessons_ab.jsonl（3 条教训注入 A/B）；baselines/（真实模型基线）；regressions/（失败样本，按需生成）
+scripts/         demo.py run_eval.py mcp_demo.py ingest.py loadtest.py latency_breakdown.py
 samples/         演示用真实 PDF
-tests/           140 项，覆盖上下文/工具/知识/记忆/运行时/韧性/多Agent/API/评测/MCP/CLI/安全/触发器/脱敏/重启恢复/连接器/生命周期/注入红队/失败回归
+tests/           200 项，覆盖上下文/工具/知识/记忆/运行时/韧性/多Agent/API/评测/MCP/CLI/安全/触发器/脱敏/重启恢复/连接器/生命周期/注入红队/失败回归/多轮检索/增量索引/压缩评测/记忆评测/抽取评测/教训注入/编排失败隔离/沙箱/限流
 docs/            ARCHITECTURE.md
 ```
 
@@ -294,7 +346,7 @@ docker build --build-arg INSTALL_EXTRAS="semantic" -t hermes-agent:semantic .
 
 | 检查项 | 结果 |
 | --- | --- |
-| `docker build -t hermes-agent:0.2.6 .` | 成功，镜像 269 MB |
+| `docker build -t hermes-agent:0.2.9 .` | 成功，镜像 269 MB |
 | `docker compose config` | 通过（无语法/插值错误） |
 | 容器内 `GET /healthz` | 200，`embedding=hashing/384`、`rerank=rrf`、`llm=mock` |
 | `POST /v1/runs` → 轮询状态 | `queued → succeeded`；闲聊 trace 11 条事件（检索问答 23 条） |
@@ -307,10 +359,22 @@ docker build --build-arg INSTALL_EXTRAS="semantic" -t hermes-agent:semantic .
 
 注意：`/v1/runs/{id}/events` 是 SSE 流。已结束的 run 回放完终态事件后会主动关流；运行中的 run 每 15 秒发一次心跳。断线重连带 `Last-Event-ID: <seq>` 即可从断点续传，也支持 `?after_seq=` 显式指定起点。
 
-以上为 0.2.6 镜像的实测结果（首次构建约 1 分钟，主要耗时在 pip 装依赖；改代码后利用缓存层重建约 4 s）。
+以上为 0.2.9 镜像的实测结果（首次构建约 1 分钟，主要耗时在 pip 装依赖；改代码后利用缓存层重建约 4 s）。
 
 ## 10. 面试材料
 
 60+ 道问答、按 JD 七条职责逐条拆解、边界问题（OpenManus / 自进化 / 分布式 / 沙箱）的标准答法，见 `docs/INTERVIEW_QA.md`（本地保留，不纳入公开仓库）。
 架构图、时序与数据流见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
+---
+
+## 附录 A：连接器体系（HTTP / CLI，非主线）
+
+这一块**不属于 Agent 工程主线**，默认不加载。保留它只解决一个具体问题：企业里已有大量 HTTP 接口与 CLI 工具，接进 Agent 不应该改核心循环。
+
+- **怎么用**：`HERMES_CONNECTORS` 指向 JSON 声明（示例见 `config/connectors.example.json`），启动时转成与内置工具相同的 `ToolSpec`，复用同一套权限 / 校验 / 超时 / 重试 / 截断 / 审计 / 脱敏。
+- **安全边界**：HTTP 只允许 `https` + 显式 `allowed_hosts`，禁跟随重定向、限制响应大小；请求前解析域名并拒绝私网/回环/链路本地/保留地址（混合解析任一命中即拒绝），连接后再核对实际对端地址以抵御 DNS 重绑定。它是**进程内校验，不是网络层隔离**（不做端口白名单、不接管代理），生产仍需出口网关/VPC 兜底。
+- **CLI 不是任意命令执行**：命令由运营方写进配置，模型只能填 schema 声明的参数值，且不经 shell、只继承最小环境变量。
+- **代码与测试**：`hermes/tools/connectors.py`、`tests/test_connectors.py`、`config/connectors.example.json`。
+- **面试口径**：只有 JD 明确要求"API / CLI 接入"时才展开；否则一句话带过，把时间留给 Runtime / RAG / 记忆 / 评测主线。
 

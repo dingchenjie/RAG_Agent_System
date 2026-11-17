@@ -14,6 +14,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ..errors import HermesError
+from ..knowledge.query import build_retrieval_query
 from .base import ToolContext, ToolResult, ToolSpec
 from .sandbox import SandboxPolicy, SandboxRunner
 
@@ -141,7 +142,9 @@ def build_default_tools(
         groups = {s.split(":", 2)[2] for s in ctx.scopes if s.startswith("kb:group:")}
         if args.acl_group:
             groups.add(args.acl_group)
-        hits = knowledge.search(args.query, top_k=args.top_k, acl_groups=groups or None)
+        # 子 Agent 的输入可能带编排指令前缀，检索前按同一套规则归一化
+        query = build_retrieval_query(args.query, previous=None)
+        hits = knowledge.search(query, top_k=args.top_k, acl_groups=groups or None)
         if not hits:
             return ToolResult(ok=True, content="知识库中没有检索到相关内容。",
                               meta={"citations": []})

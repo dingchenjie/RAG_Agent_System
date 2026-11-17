@@ -1,11 +1,12 @@
 """检索质量专项评测：recall@k / MRR 与 ACL 过滤。"""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from hermes.eval.retrieval import evaluate_retrieval
+from hermes.eval.retrieval import evaluate_retrieval, load_retrieval_tasks
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -64,4 +65,38 @@ def test_retrieval_breakdown_by_k_category_and_empty(knowledge):
     assert result["empty_ok"] == 1
     assert result["empty_rate"] == 1.0
     assert result["gate_sweep"][0]["min_coverage"] == 0.99
+
+
+def test_follow_up_task_uses_previous_question(knowledge):
+    """「那上海呢？」单独检索没有主题，补上上一轮问题后才应命中。"""
+    task = {
+        "id": "follow", "category": "follow_up", "input": "那上海呢？",
+        "previous": "差旅住宿一线城市的上限是多少？",
+        "scopes": ["tool:read", "kb:group:finance"],
+        "gold": [{"doc_id": "finance_policy", "contains": "一线城市住宿上限为每晚 600 元"}],
+    }
+    with_context = evaluate_retrieval(knowledge, [task])
+    assert with_context["recall_at_k"] == 1.0
+    assert with_context["details"][0]["query"].startswith("差旅住宿")
+
+    without_context = evaluate_retrieval(knowledge, [{k: v for k, v in task.items()
+                                                      if k != "previous"}])
+    assert without_context["recall_at_k"] == 0.0
+
+
+def test_retrieval_dataset_scale_and_category_coverage():
+    """离线评测集需覆盖多类内部知识与多种问法，规模不足会让指标失真。"""
+    tasks = load_retrieval_tasks(ROOT / "eval" / "retrieval.jsonl")
+    scored = [t for t in tasks if t.get("gold") and not t.get("expect_empty")]
+    assert len(tasks) >= 40
+    assert len(scored) >= 30
+    assert sum(1 for t in tasks if t.get("expect_empty")) >= 10
+
+    corpus = json.loads((ROOT / "eval" / "retrieval_corpus.json").read_text(encoding="utf-8"))
+    assert len(corpus) >= 50
+    assert len({doc["doc_id"] for doc in corpus}) == len(corpus)
+    assert sum(1 for doc in corpus if doc.get("acl")) >= 6
+
+    for category in ("synonym", "paraphrase", "multi_hop", "acl", "follow_up", "out_of_domain"):
+        assert sum(1 for t in tasks if t.get("category") == category) >= 3
 

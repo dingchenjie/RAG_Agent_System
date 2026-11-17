@@ -5,15 +5,20 @@ ToolRegistry 的九道关（权限、校验、超时、重试、截断、审计�
 
 安全边界（有意为之）：
 - HTTP 只允许 https（或显式 allow_http），host 必须精确命中 allowed_hosts，禁跟随重定向；
+- 发请求前把域名解析成 IP，拒绝私网/回环/链路本地/保留地址（防 SSRF）；
+- 连接建立后再核对实际对端地址，抵御 DNS 重绑定；
+- 注入测试用 transport 时跳过解析，由调用方（测试）自己保证网络边界；
 - CLI 命令由运营方在配置里固定，模型只能填 schema 声明的参数值，且不经 shell；
 - 子进程只继承最小环境变量，不把整份 os.environ 交给外部命令。
 """
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import re
+import socket
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -130,6 +135,69 @@ def _fill_url(template: str, values: dict[str, Any], consumed: set[str]) -> str:
     return _PLACEHOLDER_RE.sub(replace, template)
 
 
+def _blocked_ip(raw: str) -> str | None:
+    """判断地址是否属于不可访问的网段；返回原因，公网地址返回 None。"""
+    try:
+        addr = ipaddress.ip_address(str(raw).split("%", 1)[0])
+    except ValueError:
+        return "invalid"
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
+    if addr.is_loopback:
+        return "loopback"
+    if addr.is_link_local:
+        return "link_local"
+    if addr.is_private:
+        return "private"
+    if addr.is_multicast:
+        return "multicast"
+    if addr.is_reserved:
+        return "reserved"
+    if addr.is_unspecified:
+        return "unspecified"
+    return None
+
+
+async def _resolve_addresses(host: str, port: int) -> list[str]:
+    infos = await asyncio.to_thread(
+        socket.getaddrinfo, host, port, type=socket.SOCK_STREAM)
+    addresses: list[str] = []
+    for info in infos:
+        address = str(info[4][0])
+        if address not in addresses:
+            addresses.append(address)
+    return addresses
+
+
+async def _guard_host(host: str, port: int) -> str | None:
+    """解析并校验目标域名；任意一个解析结果落在受限网段就拒绝（防混合解析绕过）。"""
+    try:
+        addresses = await _resolve_addresses(host, port)
+    except OSError as exc:
+        return f"域名解析失败: {host}（{type(exc).__name__}）"
+    if not addresses:
+        return f"域名解析为空: {host}"
+    for address in addresses:
+        reason = _blocked_ip(address)
+        if reason is not None:
+            return f"{host} 解析到受限地址 {address}（{reason}）"
+    return None
+
+
+def _peer_ip(response: httpx.Response) -> str | None:
+    """读取实际连接的对端地址；注入 transport 没有该信息时返回 None。"""
+    stream = response.extensions.get("network_stream")
+    if stream is None:
+        return None
+    try:
+        server = stream.get_extra_info("server_addr")
+    except Exception:  # noqa: BLE001 不同 transport 实现能力不同，拿不到就跳过
+        return None
+    if isinstance(server, tuple) and server:
+        return str(server[0])
+    return None
+
+
 def _build_http_handler(defn: dict[str, Any], transport: httpx.AsyncBaseTransport | None):
     method = str(defn.get("method") or "GET").upper()
     url_template = str(defn["url"])
@@ -154,6 +222,16 @@ def _build_http_handler(defn: dict[str, Any], transport: httpx.AsyncBaseTranspor
                 ok=False, code="connector_rejected",
                 error=f"目标 host 未授权: {parsed.netloc}",
             )
+        # 真实网络路径才做 DNS 校验；注入 transport 的边界由调用方负责
+        if transport is None:
+            try:
+                port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            except ValueError:
+                return ToolResult(ok=False, code="connector_rejected",
+                                  error=f"目标端口非法: {parsed.netloc}")
+            denied = await _guard_host(parsed.hostname or "", port)
+            if denied:
+                return ToolResult(ok=False, code="connector_rejected", error=denied)
 
         rest = {key: value for key, value in values.items() if key not in consumed}
         params = {key: rest[key] for key in query_keys if key in rest}
@@ -174,6 +252,15 @@ def _build_http_handler(defn: dict[str, Any], transport: httpx.AsyncBaseTranspor
         try:
             async with httpx.AsyncClient(transport=transport) as client:
                 async with client.stream(method, url, **kwargs) as response:
+                    # DNS 校验与实际连接之间仍可能被重绑定，连上后再核对一次对端地址
+                    peer = _peer_ip(response)
+                    if peer:
+                        reason = _blocked_ip(peer)
+                        if reason is not None:
+                            return ToolResult(
+                                ok=False, code="connector_rejected",
+                                error=f"实际对端地址受限: {peer}（{reason}）",
+                            )
                     chunks: list[bytes] = []
                     total = 0
                     truncated = False

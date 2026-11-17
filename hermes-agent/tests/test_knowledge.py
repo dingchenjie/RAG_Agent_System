@@ -71,3 +71,37 @@ def test_search_rejects_dim_mismatch(settings):
     with pytest.raises(HermesError) as exc:
         state.knowledge.search("LoRA 的秩 r")
     assert exc.value.code == "embedding_mismatch"
+
+
+class CountingEmbedder:
+    """包一层真实 embedder，记录每批实际送去向量化的文本。"""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.name = inner.name
+        self.dim = inner.dim
+        self.batches: list[list[str]] = []
+
+    def embed(self, texts):
+        self.batches.append(list(texts))
+        return self.inner.embed(texts)
+
+
+def test_incremental_ingest_reuses_unchanged_chunks(settings):
+    """同一文档升版本时，文本没变的 chunk 不应重复调 embedding。"""
+    state = build_state(settings, MockLLM())
+    first = state.knowledge.index.ingest_chunks(
+        doc_id="doc", chunks=["A 段", "B 段"], version="1")
+    assert (first.embedded_chunks, first.reused_chunks) == (2, 0)
+
+    counter = CountingEmbedder(state.knowledge.index.embedder)
+    state.knowledge.index.embedder = counter
+    second = state.knowledge.index.ingest_chunks(
+        doc_id="doc", chunks=["A 段", "B 段", "C 段"], version="2")
+
+    assert second.chunks == 3
+    assert (second.embedded_chunks, second.reused_chunks) == (1, 2)
+    assert counter.batches == [["C 段"]]
+    # 复用后新版本仍可被检索到
+    hits = state.knowledge.search("A 段", top_k=3)
+    assert hits and hits[0].version == "2"

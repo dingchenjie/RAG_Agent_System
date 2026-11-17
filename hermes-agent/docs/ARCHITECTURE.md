@@ -63,18 +63,20 @@
                                      │
                     splitter.dedupe（余弦贪心去冗余，阈值 HERMES_DEDUPE_THRESHOLD）
                                      │
-             KnowledgeIndex.ingest_chunks（embedder 批量向量化 + 维度校验）
+             KnowledgeIndex.ingest_chunks（未变 chunk 复用旧向量，新 chunk 才 embed + 维度校验）
                                      │
                      SQLite：documents(doc_id, version, acl, embedding_model, embedding_dim)
                             chunks(chunk_id, doc_id, version, ord, text, embedding)
                                      │
-查询 ──分词──> BM25 召回 ─┐
+查询 ──（追问时并入上一轮问题）──> 分词──> BM25 召回 ─┐
       └────> 向量召回 ────┴─> RRF 融合 ──> 相关性门控 ──> rerank（RRF 截断 / 交叉重排）──> Hit[]
                                             │
                                   覆盖率或相似度不达标 → 返回空 → "没有检索到相关内容"
 ```
 
 - **版本管理**：同一 `doc_id` 新版本入库时旧版本 `active=0`，查询只读 active，引用里带版本号；
+- **多轮追问**：`knowledge/query.py` 用确定性规则判断是否追问（指代词开头 / ≤12 字且以「呢」收尾），是则把上一轮用户问题并入检索 query；单轮问题原样透传；
+- **增量索引**：新版本中文本完全相同的 chunk 复用历史向量，只对新增/变更 chunk 调 embedding；复用前校验 `embedding_model/dim`；
 - **权限过滤**：文档 `acl` 为分组集合，查询时按调用方 scopes 过滤；
 - **向量口径**：写入时记录 `embedding_model/dim`，换 embedder 后继续写入会抛 `embedding_mismatch`，避免静默错分。
 
@@ -102,10 +104,14 @@
 ## 5. 记忆状态机
 
 ```
-规则抽取 → pending ──confirm──> active ──archive/forget──> archived / deleted
+规则 / LLM 抽取 → pending ──confirm──> active ──archive/forget──> archived / deleted
               │                   │
               └──reject──> rejected └──correct──> 新记录 active（supersedes_id 指向旧记录）
 ```
+
+抽取器是可替换点：`HERMES_MEMORY_EXTRACTOR=rule` 走确定性正则（零成本、可离线断言），
+`llm` 走结构化 JSON 抽取（失败返回空候选，不污染记忆）；两条链路都只产出 `pending`，
+确认后才进入召回。
 
 召回打分：`0.45*cosine + 0.30*lexical + 0.15*recency + 0.10*confidence`，
 所有查询强制 `tenant_id + user_id` 过滤，避免跨租户泄漏。
@@ -135,6 +141,23 @@
 | 延迟 / token / 成本 | 基于 `llm.request` 与 `run.completed` 事件 |
 
 门禁：`hermes eval --fail-under 0.99`，成功率不达标退出码非 0，可直接用于 CI。
+真实模型：`--real` 拒绝 mock / 缺 Key，`--save-baseline` 按 `provider + model + prompt_version`
+落盘，`--baseline` 对比成功率、P95 与成本，成功率下降超过 0.05 退出码 1。
+
+专项评测（同一套离线口径，均可回归）：
+
+- 检索质量：`eval/retrieval.py`，`recall@k` / `MRR` / `nDCG@k`、分类指标与 `min_coverage` 扫描；
+- 注入红队：`eval/injection.py`，从事件轨迹判断越权工具与标记泄漏；
+- 上下文压缩：`eval/compression.py`，长对话 needle 保留率 + token 压缩比（含 1 条负对照）；
+- 长期记忆：`eval/memory.py`，召回命中、冲突归档、TTL 过期、待确认与跨租户/跨用户隔离；
+- 记忆抽取：`eval/extraction.py`，规则 vs LLM 的 precision / recall / F1、负例误抽率与沉默准确率；
+- 教训注入：`eval/lessons.py`，同一批用例在"无 active 教训 / 注入已确认教训"下各跑一次，
+  离线用确定性替身验证"失败轨迹 → 提炼 → 人工确认 → 注入 → 行为改变"链路，真实效果需用真实模型复测；
+- 编排失败隔离：`eval/orchestration.py`，故障注入让指定子 Agent 超时/异常，验证"部分失败仍产出降级答案、
+  全部失败显式报错"，并检查 `agent.failed` / `run.completed` / `run.failed` 事件是否如实落库。
+
+沙箱：默认 `process`（AST 白名单 + `python -I -S` + POSIX rlimit + 超时杀进程树），
+`HERMES_SANDBOX_MODE=docker` 切容器后端（禁网、内存/CPU/pid 限制、只读根 + tmpfs、非 root）。
 
 ---
 
@@ -143,4 +166,4 @@
 - 单机：`uvicorn hermes.api.app:app` + SQLite 文件卷；
 - 容器：默认 slim 镜像（无 torch）；`--build-arg INSTALL_EXTRAS=semantic` 构建语义镜像；
 - 扩展点：`KnowledgeIndex` 换向量库、`EventStore` 换消息队列、`RunScheduler` 换分布式队列；
-- 已知非目标：容器级沙箱、跨机调度、多租户配额计费。
+- 已知非目标：微 VM 级隔离（gVisor/Firecracker）、跨机调度、多租户计费（入口限流与在途并发配额已实现，Docker 沙箱后端可选，按量计费未做）。

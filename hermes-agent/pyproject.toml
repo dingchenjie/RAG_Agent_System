@@ -1,6 +1,6 @@
 [project]
 name = "hermes-agent"
-version = "0.2.6"
+version = "0.2.9"
 description = "Hermes Agent：Agent Runtime + RAG 知识层 + 工具/MCP + 长期记忆 + 多 Agent + 可观测评测，默认离线可跑"
 requires-python = ">=3.10"
 dependencies = [
@@ -43,8 +43,9 @@ select = ["E", "F", "I", "B", "UP"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-# FastAPI 的 Depends/Query/File 就是放在默认参数位，B008 在这里是误报
+# FastAPI 的 Depends/Query/File 就是放在默认参数位，B008 在这些文件里是误报
 "hermes/api/app.py" = ["B008"]
+"hermes/api/routers/*.py" = ["B008"]
 
 [tool.coverage.run]
 source = ["hermes"]

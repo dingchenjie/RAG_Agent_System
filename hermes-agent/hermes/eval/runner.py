@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -143,7 +144,7 @@ class EvalRunner:
         ]
         expected_tools = task.get("expected_tools", [])
         expected_contains = task.get("expected_contains", [])
-        ok = state == "succeeded" and all(kw in answer for kw in expected_contains)
+        ok = state == "succeeded" and all(_keyword_matches(answer, kw) for kw in expected_contains)
         if expected_tools:
             ok = ok and set(expected_tools).issubset(set(called))
         if "expected_subtasks" in task:
@@ -187,3 +188,10 @@ class EvalRunner:
             "rerank": getattr(settings, "rerank_backend", "unknown"),
             "prompt_version": hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:8],
         }
+
+
+def _keyword_matches(answer: str, keyword: str) -> bool:
+    """关键词匹配忽略空白差异：真实模型常把 "10 个工作日" 写成 "10个工作日内"。"""
+    if keyword in answer:
+        return True
+    return re.sub(r"\s+", "", keyword) in re.sub(r"\s+", "", answer)

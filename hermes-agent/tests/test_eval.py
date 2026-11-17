@@ -52,6 +52,16 @@ def test_single_task_trace_based_tool_check(settings):
     assert result.faithfulness is not None and result.faithfulness > 0
 
 
+def test_keyword_match_ignores_whitespace_differences():
+    """真实模型会把 "10 个工作日" 写成 "10个工作日内"，不应判失败。"""
+    runner = EvalRunner(runtime=None, event_store=None, dataset_path=Path("unused"))
+    result = runner._score({"id": "ws", "expected_contains": ["10 个工作日"]},
+                           mode="single", started=0.0, state="succeeded",
+                           answer="需要在出差结束后10个工作日内提交。", events=[], steps=1,
+                           tokens=0, cost_usd=0.0, citations=0, error=None)
+    assert result.ok
+
+
 def test_orchestrated_task_aggregates_worker_traces(settings):
     state = build_state(settings, MockLLM())
     ingest_seed_docs(state)

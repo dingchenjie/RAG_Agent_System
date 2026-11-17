@@ -1,0 +1,3 @@
+{"id": "lesson-citation-lora-rank", "input": "LoRA 的秩 r 通常设置为多少？", "lesson_rule": "unsupported_answer", "lesson_content": "检索到资料后必须在结论里用 [n] 标注来源编号，否则无法追溯。", "expected_tools": ["kb_search"], "expected_contains": ["依据编号 [1]"], "category": "citation"}
+{"id": "lesson-citation-lora-memory", "input": "LoRA 低秩分解为什么能省显存？", "lesson_rule": "unsupported_answer", "lesson_content": "检索到资料后必须在结论里用 [n] 标注来源编号，否则无法追溯。", "expected_tools": ["kb_search"], "expected_contains": ["依据编号 [1]"], "category": "citation"}
+{"id": "lesson-citation-qlora-config", "input": "QLoRA 在 24GB 显存下怎么配置？", "lesson_rule": "unsupported_answer", "lesson_content": "检索到资料后必须在结论里用 [n] 标注来源编号，否则无法追溯。", "expected_tools": ["kb_search"], "expected_contains": ["依据编号 [1]"], "category": "citation"}

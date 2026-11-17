@@ -14,7 +14,7 @@ def test_extractor_finds_profile_and_preference():
     candidates = RuleMemoryExtractor().extract("我叫丁辰杰，我喜欢用 Python 做数据分析，我的城市是南京。")
     keys = {c.mkey for c in candidates}
     assert "name" in keys
-    assert "profile.城市" in keys
+    assert "profile.city" in keys
 
 
 def test_pending_memory_not_recalled_until_confirmed(settings):

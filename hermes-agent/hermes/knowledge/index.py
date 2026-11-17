@@ -65,6 +65,9 @@ class IngestReport:
     chars: int
     duration_ms: float
     doc_ids: list[str] = field(default_factory=list)
+    # 增量索引口径：只对文本发生变化的 chunk 调 embedding，未变动的复用旧向量
+    embedded_chunks: int = 0
+    reused_chunks: int = 0
 
 
 def chunk_text(text: str, size: int = 400, overlap: int = 60) -> list[str]:
@@ -124,10 +127,17 @@ class KnowledgeIndex:
         activate: bool = True,
         raw_chars: int | None = None,
     ) -> IngestReport:
-        """写入已分块（并已去冗余）的文本，供 loader/splitter 链路复用，避免二次切分。"""
+        """写入已分块（并已去冗余）的文本，供 loader/splitter 链路复用，避免二次切分。
+
+        同一文档的新版本里，文本完全相同的 chunk 直接复用历史向量，只对新增/变更的
+        chunk 调用 embedding；换过 embedding 后端（model/dim 不同）时不复用。
+        """
         started = time.perf_counter()
         self._assert_embedding_compatible()
-        embeddings = self.embedder.embed(chunks) if chunks else []
+        reusable = self._reusable_embeddings(doc_id, chunks)
+        pending = list(dict.fromkeys(chunk for chunk in chunks if chunk not in reusable))
+        fresh = dict(zip(pending, self.embedder.embed(pending), strict=False)) if pending else {}
+        embeddings = [reusable[chunk] if chunk in reusable else fresh[chunk] for chunk in chunks]
         now = time.time()
 
         with self.db.transaction() as conn:
@@ -158,7 +168,36 @@ class KnowledgeIndex:
             replaced_versions=replaced,
             chars=raw_chars if raw_chars is not None else sum(len(c) for c in chunks),
             duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            embedded_chunks=len(pending),
+            reused_chunks=sum(1 for chunk in chunks if chunk in reusable),
         )
+
+    def _reusable_embeddings(self, doc_id: str, chunks: list[str]) -> dict[str, list[float]]:
+        """从同一文档的历史版本里找文本完全一致的 chunk 向量。"""
+        wanted = set(chunks)
+        if not wanted:
+            return {}
+        model = getattr(self.embedder, "name", "unknown")
+        dim = getattr(self.embedder, "dim", None)
+        rows = self.db.query(
+            "SELECT c.text, c.embedding FROM chunks c "
+            "JOIN documents d ON d.doc_id = c.doc_id AND d.version = c.version "
+            "WHERE c.doc_id = ? AND d.embedding_model IS ? AND d.embedding_dim IS ?",
+            (doc_id, model, dim),
+        )
+        reusable: dict[str, list[float]] = {}
+        for row in rows:
+            text = row["text"]
+            if text not in wanted or text in reusable:
+                continue
+            try:
+                vector = json.loads(row["embedding"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if dim and len(vector) != dim:
+                continue
+            reusable[text] = vector
+        return reusable
 
     def _assert_embedding_compatible(self) -> None:
         """维度不一致会导致余弦相似度静默错分，这里显式失败并要求重建。"""

@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-11-17T08:09:02+00:00",
+  "provider": "zhipu",
+  "model": "glm-4-air",
+  "prompt_version": "149df1c4",
+  "embedding": "hashing",
+  "memory_extractor": "rule",
+  "tasks": 22,
+  "success_rate": 0.9545,
+  "tool_f1": 0.9545,
+  "latency_p95_ms": 8926.73,
+  "total_cost_usd": 0.023792,
+  "retrieval": {
+    "recall_at_k": 1.0,
+    "mrr": 0.9277777777777777,
+    "ndcg_at_k": 0.930855241420934
+  },
+  "extraction": {
+    "precision": 1.0,
+    "recall": 0.5263157894736842,
+    "f1": 0.6896551724137931
+  }
+}
