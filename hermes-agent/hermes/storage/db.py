@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS runs (
     steps           INTEGER NOT NULL DEFAULT 0,
     checkpoint      TEXT,
     usage           TEXT,
+    request         TEXT,
     idempotency_key TEXT,
     created_at      REAL NOT NULL,
     updated_at      REAL NOT NULL
@@ -93,6 +94,8 @@ CREATE TABLE IF NOT EXISTS memories (
     mtype           TEXT NOT NULL,
     mkey            TEXT NOT NULL,
     value           TEXT NOT NULL,
+    subject_type    TEXT,
+    subject_id      TEXT,
     confidence      REAL NOT NULL DEFAULT 0.8,
     status          TEXT NOT NULL DEFAULT 'pending',
     source_run_id   TEXT,
@@ -140,6 +143,24 @@ CREATE TABLE IF NOT EXISTS lessons (
     updated_at  REAL NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_rule ON lessons(tenant_id, rule);
+
+CREATE TABLE IF NOT EXISTS triggers (
+    id           TEXT PRIMARY KEY,
+    tenant_id    TEXT NOT NULL,
+    user_id      TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    input        TEXT NOT NULL,
+    mode         TEXT NOT NULL DEFAULT 'single',
+    interval_s   INTEGER NOT NULL,
+    scopes       TEXT NOT NULL DEFAULT '["tool:read"]',
+    session_id   TEXT,
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    next_fire_at REAL NOT NULL,
+    last_run_id  TEXT,
+    created_at   REAL NOT NULL,
+    updated_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_triggers_due ON triggers(enabled, next_fire_at);
 """
 
 
@@ -168,6 +189,21 @@ class Database:
             self._conn.execute("ALTER TABLE documents ADD COLUMN embedding_model TEXT")
         if "embedding_dim" not in columns:
             self._conn.execute("ALTER TABLE documents ADD COLUMN embedding_dim INTEGER")
+
+        run_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(runs)")}
+        if "request" not in run_columns:
+            self._conn.execute("ALTER TABLE runs ADD COLUMN request TEXT")
+
+        memory_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(memories)")}
+        if "subject_type" not in memory_columns:
+            self._conn.execute("ALTER TABLE memories ADD COLUMN subject_type TEXT")
+        if "subject_id" not in memory_columns:
+            self._conn.execute("ALTER TABLE memories ADD COLUMN subject_id TEXT")
+        # 索引必须放在补列之后：老库直接 CREATE INDEX 会因缺列失败
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mem_subject "
+            "ON memories(tenant_id, user_id, subject_type, subject_id)"
+        )
 
     def execute(self, sql: str, params: Sequence[Any] = ()) -> sqlite3.Cursor:
         with self._lock:

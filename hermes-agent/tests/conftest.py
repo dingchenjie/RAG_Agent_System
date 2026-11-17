@@ -25,6 +25,8 @@ def make_settings(tmp_path: Path, **overrides) -> Settings:
         # 测试固定走离线路径，避免机器上装了 sentence-transformers 时行为漂移
         embedding_backend="hashing",
         rerank_backend="rrf",
+        # 测试不启动触发器后台循环，触发器行为由 test_triggers.py 直接验证服务层
+        trigger_tick_s=0.0,
         upload_dir=str(tmp_path / "uploads"),
         context=ContextConfig(
             total_tokens=3000,

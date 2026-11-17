@@ -1,6 +1,6 @@
 [project]
 name = "hermes-agent"
-version = "0.2.1"
+version = "0.2.3"
 description = "Hermes Agent：Agent Runtime + RAG 知识层 + 工具/MCP + 长期记忆 + 多 Agent + 可观测评测，默认离线可跑"
 requires-python = ">=3.10"
 dependencies = [

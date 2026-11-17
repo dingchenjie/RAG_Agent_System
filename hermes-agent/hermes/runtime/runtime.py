@@ -123,6 +123,7 @@ class AgentRuntime:
         cancel: CancelToken | None = None,
         idempotency_key: str | None = None,
         run_id: str | None = None,
+        extra_context: dict | None = None,
     ) -> RunResult:
         if idempotency_key:
             existing = self.runs.find_by_idempotency(idempotency_key)
@@ -146,6 +147,7 @@ class AgentRuntime:
         await self._emit(run_id, EventType.RUN_CREATED, {
             "session_id": session.id, "agent": self.agent_name, "input": user_input,
             "tenant_id": tenant_id, "user_id": user_id,
+            "context": self._context_meta(extra_context),
         })
         await self._emit(run_id, EventType.RUN_STARTED, {"agent": self.agent_name})
 
@@ -155,7 +157,7 @@ class AgentRuntime:
         return await self._loop(
             run_id=run_id, session_id=session.id, tenant_id=tenant_id, user_id=user_id,
             user_input=user_input, history=history, start_step=0, scopes=scopes,
-            cancel=cancel or CancelToken(), pending=None,
+            cancel=cancel or CancelToken(), pending=None, extra_context=extra_context,
         )
 
     # --------------------------------------------------------------- resume
@@ -180,6 +182,7 @@ class AgentRuntime:
             user_id=row["user_id"], user_input=row["input"], history=history, start_step=step,
             scopes=frozenset({"tool:read", "tool:write", "memory:write"}),
             cancel=cancel or CancelToken(), pending=pending, confirmed=confirmed,
+            extra_context=checkpoint.get("context"),
         )
 
     # ----------------------------------------------------------------- core
@@ -197,6 +200,7 @@ class AgentRuntime:
         cancel: CancelToken,
         pending: dict | None,
         confirmed: bool = False,
+        extra_context: dict | None = None,
     ) -> RunResult:
         tracer = Tracer(self.bus, run_id)
         meter = UsageMeter(max_tokens=self.settings.max_run_tokens,
@@ -213,6 +217,11 @@ class AgentRuntime:
         except Exception as exc:  # 检索失败不应阻塞对话
             await self._emit(run_id, EventType.KNOWLEDGE_RETRIEVED, {"error": str(exc), "degraded": True})
 
+        # 页面信息/企业规则随请求进入本轮上下文，再交给统一的预算与裁剪逻辑
+        rendered_context = self._render_run_context(extra_context)
+        if rendered_context:
+            injected["当前页面"] = rendered_context
+
         step = start_step
         answer: str | None = None
         state = "running"
@@ -222,6 +231,7 @@ class AgentRuntime:
         try:
             # 恢复时先执行被挂起的写操作
             if pending and confirmed:
+                pending_spec = self.registry.get(pending["name"])
                 result = await run_with_cancel(
                     self.registry.execute(
                         pending["name"], pending.get("arguments") or {},
@@ -238,7 +248,9 @@ class AgentRuntime:
                     tool_call_id=pending.get("id"), name=pending["name"]))
                 self.sessions.add_message(session_id, history[-1])
                 await self._emit(run_id, EventType.TOOL_CALL_COMPLETED if result.ok else EventType.TOOL_CALL_FAILED,
-                                 {"tool": pending["name"], "confirmed": True, "ok": result.ok,
+                                 {"tool": pending["name"],
+                                  "version": pending_spec.version if pending_spec else "",
+                                  "confirmed": True, "ok": result.ok,
                                   "content": result.content[:300]})
                 pending = None
 
@@ -303,8 +315,11 @@ class AgentRuntime:
                 paused = False
                 for tool_call in response.tool_calls:
                     cancel.raise_if_cancelled()
+                    spec = self.registry.get(tool_call.name)
+                    version = spec.version if spec else ""
                     await self._emit(run_id, EventType.TOOL_CALL_STARTED, {
-                        "tool": tool_call.name, "call_id": tool_call.id, "arguments": tool_call.arguments,
+                        "tool": tool_call.name, "version": version,
+                        "call_id": tool_call.id, "arguments": tool_call.arguments,
                     })
                     ctx = ToolContext(run_id=run_id, tenant_id=tenant_id, user_id=user_id,
                                       scopes=scopes, cancel=cancel, confirmed=confirmed)
@@ -317,7 +332,8 @@ class AgentRuntime:
                                    "arguments": tool_call.arguments}
                         paused = True
                         await self._emit(run_id, EventType.TOOL_CONFIRM_REQUIRED, {
-                            "tool": tool_call.name, "arguments": tool_call.arguments,
+                            "tool": tool_call.name, "version": version,
+                            "arguments": tool_call.arguments,
                             "preview": result.content,
                         })
                         continue
@@ -333,14 +349,16 @@ class AgentRuntime:
                     await self._emit(
                         run_id,
                         EventType.TOOL_CALL_COMPLETED if result.ok else EventType.TOOL_CALL_FAILED,
-                        {"tool": tool_call.name, "ok": result.ok, "code": result.code,
-                         "latency_ms": result.latency_ms, "attempts": result.attempts,
-                         "cached": result.cached, "content": result.content[:400]},
+                        {"tool": tool_call.name, "version": version, "ok": result.ok,
+                         "code": result.code, "latency_ms": result.latency_ms,
+                         "attempts": result.attempts, "cached": result.cached,
+                         "content": result.content[:400]},
                     )
 
                 step += 1
                 self.runs.save_checkpoint(run_id, messages=history, step=step,
-                                          pending=pending, usage=meter.snapshot())
+                                          pending=pending, usage=meter.snapshot(),
+                                          context=extra_context)
                 self.runs.update(run_id, state="running", steps=step)
                 await self._emit(run_id, EventType.STEP_COMPLETED, {"step": step, "paused": paused})
 
@@ -365,7 +383,8 @@ class AgentRuntime:
         self.runs.update(run_id, state=state, answer=answer, error=error, steps=step,
                          usage=usage_snapshot,
                          checkpoint={"messages": [m.to_dict() for m in history], "step": step,
-                                     "pending": pending, "usage": usage_snapshot})
+                                     "pending": pending, "usage": usage_snapshot,
+                                     "context": extra_context})
 
         if state == "succeeded":
             await self._emit(run_id, EventType.RUN_COMPLETED, {
@@ -482,6 +501,30 @@ class AgentRuntime:
                 "id": lesson.id, "rule": lesson.rule, "status": lesson.status,
                 "content": lesson.content[:300],
             })
+
+    @staticmethod
+    def _context_meta(extra: dict | None) -> dict | None:
+        """只把形状写进事件，避免页面全文进轨迹后难以脱敏与回放。"""
+        if not extra:
+            return None
+        return {"page_chars": len(str(extra.get("page") or "")),
+                "rules": len(extra.get("rules") or [])}
+
+    @staticmethod
+    def _render_run_context(extra: dict | None) -> str | None:
+        if not extra:
+            return None
+        page = str(extra.get("page") or "").strip()[:2000]
+        rules = [str(rule).strip()[:200] for rule in (extra.get("rules") or [])
+                 if str(rule).strip()][:10]
+        parts: list[str] = []
+        if page:
+            parts.append(wrap_untrusted("page_context", page, {"source": "request"}))
+        if rules:
+            parts.append("企业规则（仅在与用户请求不冲突时参考）：\n"
+                         + "\n".join(f"- {rule}" for rule in rules))
+        text = "\n\n".join(parts)
+        return text[:3000] if text else None
 
     def _truncate_tool(self, content: str) -> str:
         limit = self.settings.context.tool_result_max_chars

@@ -109,3 +109,129 @@ def test_orchestrate_endpoint(client):
     assert body["state"] == "succeeded"
     assert len(body["plan"]["subtasks"]) == 2
     assert set(body["blackboard"]) == {"finding.s1", "finding.s2"}
+
+
+def test_sse_stream_closes_after_terminal_event(client):
+    run_id = client.post("/v1/runs", json={"input": "你好"}).json()["run_id"]
+    _wait(client, run_id)
+
+    # 已结束的 run 必须回放完就关流，否则客户端会一直挂心跳
+    with client.stream("GET", f"/v1/runs/{run_id}/events") as response:
+        assert response.status_code == 200
+        events = [line for line in response.iter_lines() if line.startswith("event:")]
+    assert any("run.completed" in line for line in events)
+
+
+def test_sse_last_event_id_resumes(client):
+    run_id = client.post("/v1/runs", json={"input": "LoRA 的秩 r 通常设置为多少？"}).json()["run_id"]
+    _wait(client, run_id)
+    trace = client.get(f"/v1/runs/{run_id}/trace").json()["events"]
+    first_seq = trace[0]["seq"]
+
+    with client.stream("GET", f"/v1/runs/{run_id}/events",
+                       headers={"Last-Event-ID": str(first_seq)}) as response:
+        ids = [int(line.split(":", 1)[1]) for line in response.iter_lines()
+               if line.startswith("id:")]
+    assert ids, "续传应当补发 Last-Event-ID 之后的事件"
+    assert min(ids) == first_seq + 1
+
+
+def test_replay_and_diff_endpoints(client):
+    baseline = client.post("/v1/runs", json={"input": "你好"}).json()["run_id"]
+    candidate = client.post("/v1/runs", json={"input": "你好"}).json()["run_id"]
+    _wait(client, baseline)
+    _wait(client, candidate)
+
+    timeline = client.get(f"/v1/runs/{candidate}/replay").json()["timeline"]
+    assert timeline and timeline[0]["type"] == "run.created"
+    assert any(item["type"] == "run.completed" for item in timeline)
+
+    diff = client.get(f"/v1/runs/{candidate}/diff", params={"against": baseline}).json()["diff"]
+    assert diff["state_changed"] is False
+    assert diff["tools_added"] == [] and diff["tools_removed"] == []
+
+
+def test_trigger_crud_and_validation(client):
+    created = client.post("/v1/triggers", json={
+        "name": "每日摘要", "input": "总结今天的知识库更新", "interval_s": 30,
+    })
+    assert created.status_code == 201
+    trigger_id = created.json()["id"]
+
+    listing = client.get("/v1/triggers").json()["triggers"]
+    assert any(item["id"] == trigger_id for item in listing)
+
+    client.post(f"/v1/triggers/{trigger_id}/disable")
+    listing = client.get("/v1/triggers").json()["triggers"]
+    assert next(item for item in listing if item["id"] == trigger_id)["enabled"] is False
+
+    client.post(f"/v1/triggers/{trigger_id}/enable")
+    client.delete(f"/v1/triggers/{trigger_id}")
+    assert all(item["id"] != trigger_id for item in client.get("/v1/triggers").json()["triggers"])
+
+    too_fast = client.post("/v1/triggers", json={"name": "x", "input": "y", "interval_s": 5})
+    assert too_fast.status_code == 422
+    assert client.post("/v1/triggers/trg_missing/enable").status_code == 404
+
+
+def test_run_context_injection_and_tool_version(client):
+    page = "客户详情页：客户 A，偏好邮件联系"
+    run_id = client.post("/v1/runs", json={
+        "input": "LoRA 的秩 r 通常设置为多少？",
+        "context": {"page": page, "rules": ["回答必须给出处"]},
+    }).json()["run_id"]
+    _wait(client, run_id)
+
+    events = client.get(f"/v1/runs/{run_id}/trace").json()["events"]
+    created = next(event for event in events if event["type"] == "run.created")
+    assert created["payload"]["context"] == {"page_chars": len(page), "rules": 1}
+
+    built = next(event for event in events if event["type"] == "context.built")
+    sections = [section["name"] for section in built["payload"]["sections"]]
+    assert "当前页面" in sections
+
+    started = next(event for event in events if event["type"] == "tool.started")
+    assert started["payload"]["version"], "工具事件必须带版本，replay/diff 才能发现版本变化"
+
+
+def test_run_context_rejects_too_long_page(client):
+    response = client.post("/v1/runs", json={
+        "input": "你好", "context": {"page": "x" * 2001},
+    })
+    assert response.status_code == 422
+
+
+def test_sessions_list_and_messages(client):
+    created = client.post("/v1/runs", json={"input": "你好"}).json()
+    run_id, session_id = created["run_id"], created["session_id"]
+    body = _wait(client, run_id)
+
+    listing = client.get("/v1/sessions").json()["items"]
+    assert any(item["session_id"] == session_id for item in listing)
+
+    messages = client.get(f"/v1/sessions/{session_id}/messages").json()["items"]
+    assert [item["role"] for item in messages] == ["user", "assistant"]
+    assert messages[1]["content"] == body["answer"]
+
+    assert client.get("/v1/sessions/sess_missing/messages").status_code == 404
+
+
+def test_memory_subject_association(client):
+    created = client.post("/v1/memory/propose", json={
+        "text": "我叫丁辰杰，我的邮箱是 dcj@example.com",
+        "tenant_id": "t1", "user_id": "u1",
+        "subject_type": "customer", "subject_id": "c_001",
+    }).json()["items"]
+    assert created and all(item["subject_type"] == "customer" for item in created)
+
+    matched = client.get("/v1/memory", params={
+        "tenant_id": "t1", "user_id": "u1",
+        "subject_type": "customer", "subject_id": "c_001",
+    }).json()["items"]
+    assert len(matched) == len(created)
+
+    other = client.get("/v1/memory", params={
+        "tenant_id": "t1", "user_id": "u1",
+        "subject_type": "customer", "subject_id": "c_002",
+    }).json()["items"]
+    assert other == []

@@ -31,6 +31,8 @@ class MemoryRecord:
     created_at: float
     updated_at: float
     expires_at: float | None
+    subject_type: str | None = None
+    subject_id: str | None = None
 
     @classmethod
     def from_row(cls, row) -> MemoryRecord:
@@ -39,11 +41,14 @@ class MemoryRecord:
             mkey=row["mkey"], value=row["value"], confidence=row["confidence"], status=row["status"],
             source_run_id=row["source_run_id"], supersedes_id=row["supersedes_id"],
             created_at=row["created_at"], updated_at=row["updated_at"], expires_at=row["expires_at"],
+            subject_type=row["subject_type"] if "subject_type" in row.keys() else None,
+            subject_id=row["subject_id"] if "subject_id" in row.keys() else None,
         )
 
     def to_dict(self) -> dict:
         return {
             "id": self.id, "mtype": self.mtype, "key": self.mkey, "value": self.value,
+            "subject_type": self.subject_type, "subject_id": self.subject_id,
             "confidence": round(self.confidence, 3), "status": self.status,
             "source_run_id": self.source_run_id, "supersedes_id": self.supersedes_id,
             "created_at": self.created_at, "updated_at": self.updated_at, "expires_at": self.expires_at,
@@ -80,17 +85,21 @@ class MemoryService:
 
     # ---------- 写入 ----------
     def propose(self, *, tenant_id: str, user_id: str, candidates: Iterable[MemoryCandidate],
-                source_run_id: str | None = None, ttl_days: int | None = None) -> list[MemoryRecord]:
+                source_run_id: str | None = None, ttl_days: int | None = None,
+                subject_type: str | None = None, subject_id: str | None = None) -> list[MemoryRecord]:
         now = time.time()
         created: list[MemoryRecord] = []
         for candidate in candidates:
             if candidate.confidence < self.min_confidence:
                 continue
             exists = self.db.query_one(
-                "SELECT * FROM memories WHERE tenant_id=? AND user_id=? AND mkey=? AND value=? AND status IN ('pending','active')",
-                (tenant_id, user_id, candidate.mkey, candidate.value),
+                "SELECT * FROM memories WHERE tenant_id=? AND user_id=? AND mkey=? AND value=? "
+                "AND COALESCE(subject_type,'')=? AND COALESCE(subject_id,'')=? "
+                "AND status IN ('pending','active')",
+                (tenant_id, user_id, candidate.mkey, candidate.value,
+                 subject_type or "", subject_id or ""),
             )
-            if exists:  # 重复记忆不重复写入
+            if exists:  # 同一业务对象下的重复记忆不重复写入
                 continue
             expires = now + (ttl_days if ttl_days is not None else self.ttl_days) * 86400
             record = MemoryRecord(
@@ -98,26 +107,35 @@ class MemoryService:
                 mkey=candidate.mkey, value=candidate.value, confidence=candidate.confidence,
                 status="pending", source_run_id=source_run_id, supersedes_id=None,
                 created_at=now, updated_at=now, expires_at=expires,
+                subject_type=subject_type, subject_id=subject_id,
             )
             self.db.execute(
-                "INSERT INTO memories(id, tenant_id, user_id, mtype, mkey, value, confidence, status, "
-                "source_run_id, supersedes_id, created_at, updated_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (record.id, tenant_id, user_id, record.mtype, record.mkey, record.value, record.confidence,
-                 record.status, record.source_run_id, None, now, now, expires),
+                "INSERT INTO memories(id, tenant_id, user_id, mtype, mkey, value, subject_type, "
+                "subject_id, confidence, status, source_run_id, supersedes_id, created_at, updated_at, "
+                "expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (record.id, tenant_id, user_id, record.mtype, record.mkey, record.value,
+                 record.subject_type, record.subject_id, record.confidence, record.status,
+                 record.source_run_id, None, now, now, expires),
             )
             created.append(record)
         return created
 
     def propose_from_text(self, *, tenant_id: str, user_id: str, text: str,
-                          source_run_id: str | None = None) -> list[MemoryRecord]:
+                          source_run_id: str | None = None,
+                          subject_type: str | None = None,
+                          subject_id: str | None = None) -> list[MemoryRecord]:
         return self.propose(tenant_id=tenant_id, user_id=user_id,
-                            candidates=self.extractor.extract(text), source_run_id=source_run_id)
+                            candidates=self.extractor.extract(text), source_run_id=source_run_id,
+                            subject_type=subject_type, subject_id=subject_id)
 
     def confirm(self, memory_id: str, *, tenant_id: str, user_id: str) -> MemoryRecord:
         record = self._get_owned(memory_id, tenant_id, user_id)
+        # 冲突只在同一业务对象内成立：客户 A 的联系偏好不应归档客户 B 的
         conflicts = self.db.query(
-            "SELECT * FROM memories WHERE tenant_id=? AND user_id=? AND mkey=? AND status='active' AND id<>?",
-            (tenant_id, user_id, record.mkey, record.id),
+            "SELECT * FROM memories WHERE tenant_id=? AND user_id=? AND mkey=? AND status='active' AND id<>? "
+            "AND COALESCE(subject_type,'')=? AND COALESCE(subject_id,'')=?",
+            (tenant_id, user_id, record.mkey, record.id,
+             record.subject_type or "", record.subject_id or ""),
         )
         now = time.time()
         with self.db.transaction() as conn:
@@ -141,15 +159,17 @@ class MemoryService:
             id=new_memory_id(), tenant_id=tenant_id, user_id=user_id, mtype=old.mtype, mkey=old.mkey,
             value=value, confidence=max(old.confidence, 0.9), status="active",
             source_run_id=old.source_run_id, supersedes_id=old.id, created_at=now, updated_at=now,
-            expires_at=old.expires_at,
+            expires_at=old.expires_at, subject_type=old.subject_type, subject_id=old.subject_id,
         )
         with self.db.transaction() as conn:
             conn.execute("UPDATE memories SET status='archived', updated_at=? WHERE id=?", (now, old.id))
             conn.execute(
-                "INSERT INTO memories(id, tenant_id, user_id, mtype, mkey, value, confidence, status, "
-                "source_run_id, supersedes_id, created_at, updated_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO memories(id, tenant_id, user_id, mtype, mkey, value, subject_type, "
+                "subject_id, confidence, status, source_run_id, supersedes_id, created_at, updated_at, "
+                "expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (new_record.id, tenant_id, user_id, new_record.mtype, new_record.mkey, new_record.value,
-                 new_record.confidence, new_record.status, new_record.source_run_id, old.id, now, now,
+                 new_record.subject_type, new_record.subject_id, new_record.confidence,
+                 new_record.status, new_record.source_run_id, old.id, now, now,
                  new_record.expires_at),
             )
         return new_record
@@ -161,7 +181,8 @@ class MemoryService:
 
     # ---------- 读取 ----------
     def recall(self, *, tenant_id: str, user_id: str, query: str, top_k: int = 4,
-               now: float | None = None) -> list[ScoredMemory]:
+               now: float | None = None, subject_type: str | None = None,
+               subject_id: str | None = None) -> list[ScoredMemory]:
         now = now or time.time()
         rows = self.db.query(
             "SELECT * FROM memories WHERE tenant_id=? AND user_id=? AND status='active' "
@@ -185,17 +206,31 @@ class MemoryService:
             lexical = len(q_tokens & m_tokens) / max(1, len(q_tokens))
             age_days = max(0.0, (now - record.created_at) / 86400)
             recency = 1.0 / (1.0 + age_days / 30.0)
-            score = 0.45 * semantic + 0.3 * lexical + 0.15 * recency + 0.1 * record.confidence
+            subject_match = (
+                1.0 if subject_type and subject_id
+                and record.subject_type == subject_type and record.subject_id == subject_id
+                else 0.0
+            )
+            score = (0.45 * semantic + 0.3 * lexical + 0.15 * recency
+                     + 0.1 * record.confidence + 0.15 * subject_match)
             scored.append(ScoredMemory(record=record, score=score))
         scored.sort(key=lambda item: item.score, reverse=True)
         return scored[:top_k]
 
-    def list_memories(self, *, tenant_id: str, user_id: str, status: str | None = None) -> list[MemoryRecord]:
+    def list_memories(self, *, tenant_id: str, user_id: str, status: str | None = None,
+                      subject_type: str | None = None,
+                      subject_id: str | None = None) -> list[MemoryRecord]:
         sql = "SELECT * FROM memories WHERE tenant_id=? AND user_id=?"
         params: list = [tenant_id, user_id]
         if status:
             sql += " AND status=?"
             params.append(status)
+        if subject_type:
+            sql += " AND subject_type=?"
+            params.append(subject_type)
+        if subject_id:
+            sql += " AND subject_id=?"
+            params.append(subject_id)
         sql += " ORDER BY updated_at DESC"
         return [MemoryRecord.from_row(r) for r in self.db.query(sql, params)]
 

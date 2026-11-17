@@ -63,3 +63,31 @@ def test_ttl_expiry(settings):
     future = created[0].expires_at + 86400
     assert memory.recall(tenant_id="t", user_id="u", query="临时", now=future) == []
     assert memory.sweep(now=future) >= 1
+
+
+def test_subject_association_filters_boosts_and_survives_correction(settings):
+    memory = _service(settings)
+    owned = memory.propose(
+        tenant_id="t", user_id="u",
+        candidates=[MemoryCandidate(mkey="pref.contact", value="客户 A 偏好邮件联系", confidence=0.9)],
+        subject_type="customer", subject_id="c_1",
+    )
+    memory.confirm(owned[0].id, tenant_id="t", user_id="u")
+    generic = memory.propose(
+        tenant_id="t", user_id="u",
+        candidates=[MemoryCandidate(mkey="pref.contact", value="默认偏好短信联系", confidence=0.9)],
+    )
+    memory.confirm(generic[0].id, tenant_id="t", user_id="u")
+
+    matched = memory.list_memories(tenant_id="t", user_id="u",
+                                   subject_type="customer", subject_id="c_1")
+    assert [record.value for record in matched] == ["客户 A 偏好邮件联系"]
+
+    recalled = memory.recall(tenant_id="t", user_id="u", query="客户联系偏好",
+                             subject_type="customer", subject_id="c_1")
+    assert recalled[0].record.value == "客户 A 偏好邮件联系"
+
+    corrected = memory.correct(owned[0].id, tenant_id="t", user_id="u",
+                               value="客户 A 偏好电话联系")
+    assert corrected.subject_type == "customer"
+    assert corrected.subject_id == "c_1"

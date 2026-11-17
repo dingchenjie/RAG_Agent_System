@@ -18,6 +18,7 @@ from enum import Enum
 from typing import Any
 
 from ..ids import new_event_id
+from ..security.redact import redact_obj
 from ..storage.db import Database
 
 
@@ -115,6 +116,9 @@ class EventStore:
 
     def append(self, event: Event) -> int:
         with self._lock:
+            # 事件是唯一事实源，凭据一旦落进来就会被 trace/replay/eval 反复读取，
+            # 因此在入口处就脱敏，并同步改写事件对象，让实时订阅者看到同样的内容。
+            event.payload = redact_obj(event.payload)
             seq = int(self.db.scalar(
                 "SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id = ?", (event.run_id,)
             ) or 1)

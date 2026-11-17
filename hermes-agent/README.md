@@ -22,7 +22,7 @@
 cd hermes-agent
 pip install -e ".[dev]"
 
-python -m pytest                                   # 93 项测试，全离线（Mock Provider）
+python -m pytest                                   # 109 项测试，全离线（Mock Provider）
 hermes ask "LoRA 的秩 r 通常设置为多少？"            # 自动入库种子知识库，打印答案 + 工具轨迹
 hermes ingest ./samples/lora.pdf                   # 真实 PDF：按页解析 → 分块 → 去冗余 → 入库
 hermes eval --fail-under 0.99                      # 离线评测 + CI 门禁（含忠实度）
@@ -73,6 +73,7 @@ pip install -e ".[ragas]"       # RAGAS 忠实度（未装则用离线引用支�
 ```
                         ┌──────────────── HTTP / SSE（hermes/api/app.py）────────────────┐
                         │ POST /v1/runs  GET /events  POST /cancel /confirm /resume      │
+                        │ /v1/runs/{id}/replay /diff  /v1/triggers*  /v1/sessions*       │
                         │ /v1/orchestrate  /v1/knowledge/*  /v1/memory/*  /metrics       │
                         └───────────────────────────┬───────────────────────────────────┘
                                                     │
@@ -87,6 +88,7 @@ pip install -e ".[ragas]"       # RAGAS 忠实度（未装则用离线引用支�
    │  ├ CancelToken 可中断（LLM 与工具）     │                    │  ├ Blackboard 共享结论           │
    │  ├ checkpoint 断点续跑（跨进程）        │                    │  └ 汇总失败可降级为拼接           │
    │  └ 预演确认 → paused → confirm 恢复     │                    └─────────────────────────────────┘
+   │  启动对账：queued 重入队 / running→interrupted                                            │
    └───────────────┬───────────────────────┘
                    │
    ┌───────────────▼─────────────────────────────────────────────────────────────────────────────┐
@@ -115,18 +117,20 @@ pip install -e ".[ragas]"       # RAGAS 忠实度（未装则用离线引用支�
 | 能力域 | 本项目实现 | 关键文件 |
 | --- | --- | --- |
 | **Agent Runtime / Harness** | ReAct 循环 + 步数/预算限制；优先级调度器；SSE 事件流；`CancelToken` 打断 in-flight LLM 与工具 | `runtime/runtime.py`、`runtime/scheduler.py`、`runtime/cancel.py` |
-| **上下文工程** | 分层预算；旧工具结果头尾保留；抽取式摘要；当前轮整段保护；超预算成组丢弃且不破坏 tool_calls 配对 | `runtime/context.py` |
+| **上下文工程** | 分层预算；旧工具结果头尾保留；抽取式摘要；当前轮整段保护；超预算成组丢弃且不破坏 tool_calls 配对；页面信息按不可信内容隔离、企业规则作为约束注入 | `runtime/context.py`、`runtime/runtime.py` |
 | **工具 / Function Calling / MCP** | 声明式契约（args_model/version/scopes/timeout/retries/side_effect/requires_confirmation）；Pydantic 强校验；scope 鉴权；稳定错误码；MCP 双向（客户端桥接 + 自建 FastMCP Server） | `tools/base.py`、`tools/registry.py`、`tools/mcp_bridge.py`、`mcp_server/` |
 | **沙箱与安全** | AST 白名单求值 + `python -I -S` 独立子进程 + 超时强杀；工具结果截断与审计；上传大小/类型白名单；检索结果与工具输出按不可信内容隔离（`<untrusted>` + 安全条款） | `tools/sandbox.py`、`tools/builtin.py`、`security/untrusted.py` |
 | **鉴权与多租户** | API Key → `Principal(tenant, user, scopes)`；`off/api_key` 两种模式；scope + 租户归属双重校验，越权统一 404；普通调用方不能自报 scope | `security/auth.py`、`api/app.py` |
 | **经验沉淀（闭环）** | 运行结束按规则提炼教训（工具不稳定 / 无引用作答 / 规划过长）→ `pending` → 人工 `hermes lessons --activate` → 注入最近 3 条 `[历史教训]` | `learning/lessons.py`、`cli.py` |
 | **RAG 全链路** | PDF/HTML/DOCX/MD 解析 → 标题感知分块 → 余弦去冗余 → BM25 + 向量 + RRF → 相关性门控 → 可选交叉重排 → `[n]《标题》doc@v1#chunk` 引用 → 文档级 ACL → 版本覆盖 | `knowledge/loaders.py`、`splitter.py`、`index.py`、`rerank.py` |
 | **向量抽象与降级** | `Embedder` 协议三实现（hashing / bge / 智谱），`auto` 顺序：显式配置 > 本地语义模型 > 智谱 Key > 哈希；维度不一致显式报 `embedding_mismatch` | `knowledge/embedding.py` |
-| **长期记忆** | 规则抽取 → `pending`；确认后 `active`；`correct` 新版本 + `supersedes`；`forget` 软删；打分 = 余弦 + 词法 + 时效 + 置信；强制 tenant + user 隔离 | `memory/service.py` |
-| **多步可靠性** | 有副作用工具先预演 → `paused` → `/confirm`；幂等键按 run 作用域；超时/退避/熔断；每步 checkpoint，进程重启 `resume` | `runtime/runtime.py`、`llm/resilience.py` |
+| **长期记忆** | 规则抽取 → `pending`；确认后 `active`；`correct` 新版本 + `supersedes`；`forget` 软删；打分 = 余弦 + 词法 + 时效 + 置信 + 业务对象匹配；记忆可绑定 `subject_type/subject_id`（如客户），召回按对象加权、冲突只在同对象内判定；强制 tenant + user 隔离 | `memory/service.py` |
+| **多步可靠性** | 有副作用工具先预演 → `paused` → `/confirm`；幂等键按 run 作用域；超时/退避/熔断；每步 checkpoint，进程重启 `resume`；启动对账把 `queued` 自动重入队、`running` 标记 `interrupted` 并发可恢复事件（不自动重放） | `runtime/runtime.py`、`llm/resilience.py`、`api/app.py` |
 | **多 Agent 调度** | 主 Agent 规则规划 → 子 Agent 并行（最小工具集 + 信号量）→ 黑板汇总 → 单点失败隔离 | `agents/orchestrator.py`、`agents/blackboard.py` |
-| **可观测 / 评测** | 事件全序 + span + Prometheus；token/成本预算；`EvalRunner`（成功率、工具 P/R/F1、引用覆盖、忠实度、P50/P95）；回放与 diff；`--fail-under` 门禁 | `observability/*`、`eval/*` |
-| **工程化 / 交付** | 单一 CLI 入口；pyproject extras 分层依赖；Docker + compose；ruff + 覆盖率门禁 + GitHub Actions；93 项离线测试 | `cli.py`、`pyproject.toml`、`Dockerfile`、`.github/workflows/ci.yml` |
+| **可观测 / 评测** | 事件全序 + span + Prometheus；token/成本预算；工具调用事件记录工具版本；`EvalRunner`（成功率、工具 P/R/F1、引用覆盖、忠实度、P50/P95）；`/replay` 时间线、`/diff` 两版对比、CLI `hermes replay --against`；`--fail-under` 门禁 | `observability/*`、`eval/*`、`cli.py` |
+| **主动触发** | interval 触发器（≥10s）：`triggers` 表 + `TriggerService.due()` 原子推进 `next_fire_at` + API 进程内后台扫描；触发与 HTTP 共用 `enqueue_run`，不新增建 run 入口；多副本需分布式锁（已列为边界） | `triggers.py`、`api/app.py`、`cli.py` |
+| **凭据保护** | 事件落库、工具审计、错误响应前统一脱敏（Authorization / `sk-*` / key-value 敏感字段）；轨迹可读但不可泄密 | `security/redact.py` |
+| **工程化 / 交付** | 单一 CLI 入口；pyproject extras 分层依赖；Docker + compose；ruff + 覆盖率门禁 + GitHub Actions；116 项离线测试 | `cli.py`、`pyproject.toml`、`Dockerfile`、`.github/workflows/ci.yml` |
 
 ---
 
@@ -136,7 +140,7 @@ pip install -e ".[ragas]"       # RAGAS 忠实度（未装则用离线引用支�
 | --- | --- | --- |
 | `if/elif` 分发 + `eval()` 计算器 | 加工具要改核心循环，且存在任意代码执行风险 | 工具注册表 + 声明式契约；AST 白名单求值；沙箱跑独立子进程 |
 | 无权限概念 | 谁都能调所有工具、读所有文档 | scope 鉴权 + 文档级 ACL + 子 Agent 最小权限工具视图 |
-| 无状态、无持久化 | 进程崩溃任务全丢 | 每步 checkpoint + 事件全序落库，跨进程 `resume` |
+| 无状态、无持久化 | 进程崩溃任务全丢 | 每步 checkpoint + 事件全序落库，跨进程 `resume`；重启对账把 `queued` 重新入队、`running` 标记 `interrupted` |
 | 不能取消、不能干预 | 长任务只能等，写操作无法确认 | `CancelToken` 中断；`paused` + `/confirm` 预演确认 |
 | 上下文"全塞进去" | 长对话超窗/丢关键信息 | 预算分配 + 摘要压缩 + 工具结果裁剪 + 当前轮保护 |
 | 无记忆 | 每次对话从零开始 | 提取 → 确认 → 召回 → 纠错 → TTL，租户隔离 |
@@ -155,7 +159,7 @@ pip install -e ".[ragas]"       # RAGAS 忠实度（未装则用离线引用支�
 - **重排默认 RRF**：两路召回无标定融合，零依赖可测；`CrossEncoderReranker` 作为可选后端（`HERMES_RERANK=cross-encoder`）。
 - **忠实度默认离线**：逐句"引用支撑度"（n-gram 覆盖率）替代 LLM 判官，可回归、零成本；RAGAS 通过 optional 适配器接入。
 - **确定性 Planner 而非"让模型自由规划"**：`Orchestrator` 只依赖 `planner.plan(goal, available) -> Plan` 这一个方法（构造参数目前标注为 `RulePlanner`，抽成 `Protocol` 只是两行代码），调度、并行、黑板、汇总都不用改——这就是"可替换"的具体落点。
-- **Mock Provider 不是玩具**：它是"可回归"的前提——93 项测试与 9 条评测在没有网络和 Key 时断言完整调用链（工具顺序、取消、恢复、熔断）。
+- **Mock Provider 不是玩具**：它是"可回归"的前提——116 项测试与 9 条评测在没有网络和 Key 时断言完整调用链（工具顺序、取消、恢复、熔断）。
 - **幂等键按 run 作用域**：读类工具结果随时间变化，跨 run 复用缓存会返回过期事实（开发中真实踩到）。
 - **上下文裁剪必须保配对**：丢 `assistant.tool_calls` 必须连同其 `tool` 结果一起丢，否则 OpenAI 兼容接口直接判请求非法。
 - **事件 seq 分配必须原子**：并发子 Agent 下 `MAX(seq)+1` 与 `INSERT` 之间有竞态，已用锁包住（全量测试曾因此偶发失败）。
@@ -191,7 +195,7 @@ hermes eval --fail-under 0.99
 | 忠实度（引用支撑） | 0.5431 |
 | 平均步数 | 1.22 |
 | 平均 token | 1490 |
-| P50 / P95 延迟 | ~30 ms / ~69 ms |
+| P50 / P95 延迟 | ~30 ms / 60–105 ms（9 条样本，P95 波动大） |
 ```
 
 用途：**回归基线**。固定 Mock + 固定哈希向量，同一份代码永远得到同一组数字，改检索或改提示后掉下去就是明确信号。
@@ -234,6 +238,9 @@ hermes eval --fail-under 0.99
 - **知识库是部署级共享**：租户隔离只做在 run/会话/记忆上；知识库写入靠 `knowledge:write`，读取靠 `knowledge:read` + 文档级 ACL。真要按租户物理隔离，需要给 `documents/chunks` 加 tenant 列并重建索引，这是有意的取舍（共享知识库是企业内更常见的形态）。
 - **默认 `HERMES_AUTH_MODE=off`**：单租户管理员模式，只适合本地/演示/CI；对外部署必须切 `api_key`（启动日志会 warning 提醒）。
 - **教训提炼是启发式规则**：三条规则（工具不稳定 / 无引用作答 / 规划过长）覆盖已知失效模式，不是通用"自我进化"；新规则默认 `pending`，必须人工确认后才注入。
+- **触发器是单进程 interval**：循环跑在 API 进程内，靠 SQLite 单写者保证同机不重复触发；停止服务期间错过的周期直接跳过，不补跑。多副本部署需要分布式锁（如 Redis `SETNX`）才能避免重复触发。只做 interval 不做 cron 表达式，是因为真正难的是"触发→去重→调度→可观测"这条链路，表达式解析可以在此之上叠加。
+- **脱敏是模式匹配**：能覆盖常见凭据形态（`Authorization`、`sk-*`、`password=` 等）与已知敏感字段名，但无法识别自定义格式的密钥；新增工具时若参数名不在名单内，需要补充 `security/redact.py`。
+- **`running` 不自动重放**：重启对账只把在途 run 标记 `interrupted` 并发可恢复事件，是否 `resume` 由人或上层决定——工具可能已有不可逆副作用，自动重跑有重复执行风险；`queued` 尚未开始执行，因此按 at-least-once 自动重新入队。
 
 ---
 
@@ -246,19 +253,20 @@ hermes/
   knowledge/     loaders splitter embedding rerank index service
   memory/        extractor service(确认/纠错/TTL/隔离)
   learning/      lessons(教训提炼/人工确认/注入)
-  security/      auth(API Key→Principal) untrusted(不可信内容隔离)
+  security/      auth(API Key→Principal) untrusted(不可信内容隔离) redact(凭据脱敏)
   agents/        orchestrator(规划+并行+汇总) blackboard
   llm/           base mock zhipu resilience(超时/退避/熔断)
   observability/ events(全序事件) tracing(spans/用量) metrics(Prometheus)
   eval/          runner metrics replay faithfulness
-  api/           app(FastAPI + SSE + 知识库管理) errors(错误契约)
+  api/           app(FastAPI + SSE + 知识库/触发器) errors(错误契约)
   mcp_server/    server(自建 stdio MCP Server)
-  cli.py         唯一人工入口：ask / chat / ingest / eval / serve / lessons
+  triggers.py    周期触发器（interval + 到期原子推进）
+  cli.py         唯一人工入口：ask / chat / ingest / eval / serve / lessons / replay / triggers
 knowledge_base/  种子 md（lora_notes、finance_policy）
 eval/            dataset.jsonl（9 条：single 7 + orchestrate 2）
 scripts/         demo.py run_eval.py mcp_demo.py ingest.py loadtest.py
 samples/         演示用真实 PDF
-tests/           93 项，覆盖上下文/工具/知识/记忆/运行时/韧性/多Agent/API/评测/MCP/CLI/安全/教训
+tests/           116 项，覆盖上下文/工具/知识/记忆/运行时/韧性/多Agent/API/评测/MCP/CLI/安全/触发器/脱敏/重启恢复
 docs/            ARCHITECTURE.md
 ```
 
@@ -276,16 +284,16 @@ docker build --build-arg INSTALL_EXTRAS="semantic" -t hermes-agent:semantic .
 
 | 检查项 | 结果 |
 | --- | --- |
-| `docker build -t hermes-agent:0.2.1 .` | 成功，镜像 268 MB |
+| `docker build -t hermes-agent:0.2.3 .` | 成功，镜像 268 MB |
 | `docker compose config` | 通过（无语法/插值错误） |
 | 容器内 `GET /healthz` | 200，`embedding=hashing/384`、`rerank=rrf`、`llm=mock` |
 | `POST /v1/runs` → 轮询状态 | `queued → succeeded`；闲聊 trace 11 条事件（检索问答 23 条） |
 | `/metrics` | 记录 `http_requests_total`，含 422 参数校验失败（错误契约生效） |
 | 数据卷 | `/data` 挂 `hermes_data`，SQLite 与上传目录都在卷内，重建容器不丢 |
 
-注意：`/v1/runs/{id}/events` 是 SSE 长连接，用 `curl -N` 或浏览器看，`curl` 默认会一直挂着不返回。
+注意：`/v1/runs/{id}/events` 是 SSE 流。已结束的 run 回放完终态事件后会主动关流；运行中的 run 每 15 秒发一次心跳。断线重连带 `Last-Event-ID: <seq>` 即可从断点续传，也支持 `?after_seq=` 显式指定起点。
 
-以上为 0.2.1 镜像的实测结果（`docker build` 用时约 3 s，含缓存层）。
+以上为 0.2.3 镜像的实测结果（`docker build` 用时约 3 s，含缓存层）。
 
 ## 10. 面试材料
 

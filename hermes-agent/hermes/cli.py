@@ -150,6 +150,71 @@ def _lessons(args: argparse.Namespace) -> int:
         state.db.close()
 
 
+def _replay(args: argparse.Namespace) -> int:
+    """打印时间线；带 --against 时改为对比两次运行的差异。"""
+    from .eval.replay import Replay, diff_traces
+
+    state = build_state(Settings.from_env())
+    try:
+        if state.runs.get_run(args.run_id) is None:
+            print(f"run 不存在: {args.run_id}")
+            return 1
+        if args.against:
+            if state.runs.get_run(args.against) is None:
+                print(f"基线 run 不存在: {args.against}")
+                return 1
+            baseline = state.event_store.history(args.against, 0, 2000)
+            candidate = state.event_store.history(args.run_id, 0, 2000)
+            diff = diff_traces(baseline, candidate)
+            print(f"基线 {args.against} → 候选 {args.run_id}")
+            print(f"工具新增: {diff['tools_added'] or '-'} / 工具移除: {diff['tools_removed'] or '-'}")
+            print(f"LLM 调用变化: {diff['llm_calls_delta']:+d} / "
+                  f"耗时变化: {diff['duration_delta_s']:+.3f}s / "
+                  f"工具失败变化: {diff['tool_failures_delta']:+d}")
+            print(f"终态是否变化: {'是' if diff['state_changed'] else '否'}")
+            return 0
+        timeline = Replay(state.event_store).timeline(args.run_id)
+        for item in timeline:
+            payload = item["payload"] or {}
+            detail = payload.get("tool") or payload.get("model") or payload.get("preview") or ""
+            print(f"{item['t']:>8.3f}s  {item['type']:<22} {detail}")
+        return 0
+    finally:
+        state.db.close()
+
+
+def _triggers(args: argparse.Namespace) -> int:
+    state = build_state(Settings.from_env())
+    try:
+        service = state.triggers
+        if args.enable or args.disable or args.delete:
+            trigger_id = args.enable or args.disable or args.delete
+            try:
+                service.get(trigger_id)
+            except KeyError:
+                print(f"触发器不存在: {trigger_id}")
+                return 1
+            if args.delete:
+                service.remove(trigger_id)
+                print(f"已删除: {trigger_id}")
+            else:
+                enabled = bool(args.enable)
+                service.set_enabled(trigger_id, enabled)
+                print(f"{'已启用' if enabled else '已停用'}: {trigger_id}")
+            return 0
+        records = service.list(tenant_id=args.tenant)
+        if not records:
+            print("（暂无触发器：hermes triggers 或 POST /v1/triggers 创建）")
+            return 0
+        for record in records:
+            flag = "on " if record.enabled else "off"
+            print(f"{record.id} [{flag}] {record.name} every={record.interval_s}s "
+                  f"mode={record.mode} last_run={record.last_run_id or '-'}")
+        return 0
+    finally:
+        state.db.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="hermes", description="Hermes Agent 命令行入口")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -187,6 +252,16 @@ def build_parser() -> argparse.ArgumentParser:
     lessons.add_argument("--activate", default=None, metavar="LESSON_ID")
     lessons.add_argument("--reject", default=None, metavar="LESSON_ID")
 
+    replay = sub.add_parser("replay", help="回放 run 轨迹，或用 --against 对比两次运行")
+    replay.add_argument("run_id")
+    replay.add_argument("--against", default=None, metavar="BASELINE_RUN_ID")
+
+    triggers = sub.add_parser("triggers", help="列出/启停/删除周期触发器")
+    triggers.add_argument("--tenant", default="default")
+    triggers.add_argument("--enable", default=None, metavar="TRIGGER_ID")
+    triggers.add_argument("--disable", default=None, metavar="TRIGGER_ID")
+    triggers.add_argument("--delete", default=None, metavar="TRIGGER_ID")
+
     return parser
 
 
@@ -212,6 +287,10 @@ def main(argv: list[str] | None = None) -> int:
         return _serve(args)
     if args.command == "lessons":
         return _lessons(args)
+    if args.command == "replay":
+        return _replay(args)
+    if args.command == "triggers":
+        return _triggers(args)
     return 2
 
 

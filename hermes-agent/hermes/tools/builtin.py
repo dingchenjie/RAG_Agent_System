@@ -36,12 +36,16 @@ class KBSearchArgs(BaseModel):
 class MemoryRecallArgs(BaseModel):
     query: str = Field("", description="检索记忆的查询语句；留空则返回最近的记忆", max_length=200)
     top_k: int = Field(4, description="返回条数", ge=1, le=10)
+    subject_type: str | None = Field(None, description="业务对象类型，如 customer", max_length=40)
+    subject_id: str | None = Field(None, description="业务对象 ID，如 c_001", max_length=120)
 
 
 class MemoryWriteArgs(BaseModel):
     key: str = Field(..., description="记忆的键，如 profile.city", min_length=1, max_length=64)
     value: str = Field(..., description="记忆的值", min_length=1, max_length=500)
     memory_type: str = Field("fact", description="记忆类型：fact / preference / profile")
+    subject_type: str | None = Field(None, description="业务对象类型，如 customer", max_length=40)
+    subject_id: str | None = Field(None, description="业务对象 ID，如 c_001", max_length=120)
 
 
 class SandboxArgs(BaseModel):
@@ -166,7 +170,8 @@ def build_default_tools(
             return ToolResult(ok=False, code="not_configured", error="记忆服务未接入")
         if args.query:
             recalled = memory.recall(tenant_id=ctx.tenant_id, user_id=ctx.user_id,
-                                     query=args.query, top_k=args.top_k)
+                                     query=args.query, top_k=args.top_k,
+                                     subject_type=args.subject_type, subject_id=args.subject_id)
             if not recalled:
                 return ToolResult(ok=True, content="没有找到相关长期记忆。", meta={"memories": []})
             return ToolResult(
@@ -174,7 +179,8 @@ def build_default_tools(
                 content="\n".join(f"- {m.record.mkey}: {m.record.value}" for m in recalled),
                 meta={"memories": [m.to_dict() for m in recalled]},
             )
-        records = memory.list_memories(tenant_id=ctx.tenant_id, user_id=ctx.user_id, status="active")
+        records = memory.list_memories(tenant_id=ctx.tenant_id, user_id=ctx.user_id, status="active",
+                                       subject_type=args.subject_type, subject_id=args.subject_id)
         content = "\n".join(f"- {r.mkey}: {r.value}" for r in records) or "当前没有已确认的长期记忆。"
         return ToolResult(ok=True, content=content, meta={"memories": [r.to_dict() for r in records]})
 
@@ -186,7 +192,7 @@ def build_default_tools(
         created = memory.propose(
             tenant_id=ctx.tenant_id, user_id=ctx.user_id,
             candidates=[MemoryCandidate(mkey=args.key, value=args.value, mtype=args.memory_type, confidence=0.95)],
-            source_run_id=ctx.run_id,
+            source_run_id=ctx.run_id, subject_type=args.subject_type, subject_id=args.subject_id,
         )
         if not created:
             return ToolResult(ok=True, content="该记忆已存在，未重复写入。")

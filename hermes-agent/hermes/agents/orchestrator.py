@@ -123,6 +123,7 @@ class Orchestrator:
         scopes: frozenset[str] = frozenset({"tool:read"}),
         cancel: CancelToken | None = None,
         parent_run_id: str | None = None,
+        extra_context: dict | None = None,
     ) -> OrchestratorResult:
         available = {spec.name for spec in getattr(self.runtime.registry, "all_specs", lambda: [])()}
         plan = self.planner.plan(goal, available)
@@ -132,9 +133,9 @@ class Orchestrator:
         blackboard = Blackboard()
 
         results = await self._dispatch(plan, blackboard, tenant_id, user_id, scopes,
-                                       cancel or CancelToken(), run_id)
+                                       cancel or CancelToken(), run_id, extra_context)
 
-        answer, usage = await self._synthesize(goal, plan, results, run_id)
+        answer, usage = await self._synthesize(goal, plan, results, run_id, extra_context)
         state = "succeeded" if any(r.ok for r in results) else "failed"
         if state == "failed" and results:
             answer = "任务未完成：" + "；".join(f"{r.subtask_id}: {r.error}" for r in results)
@@ -147,7 +148,8 @@ class Orchestrator:
                                   usage=usage, blackboard=blackboard.snapshot())
 
     async def _dispatch(self, plan: Plan, blackboard: Blackboard, tenant_id: str, user_id: str,
-                        scopes: frozenset[str], cancel: CancelToken, run_id: str) -> list[WorkerResult]:
+                        scopes: frozenset[str], cancel: CancelToken, run_id: str,
+                        extra_context: dict | None = None) -> list[WorkerResult]:
         semaphore = asyncio.Semaphore(self.max_workers)
 
         async def run_one(subtask: Subtask) -> WorkerResult:
@@ -167,7 +169,7 @@ class Orchestrator:
                 try:
                     result: RunResult = await worker.run(
                         user_input=subtask.goal, tenant_id=tenant_id, user_id=user_id,
-                        scopes=scopes, cancel=cancel,
+                        scopes=scopes, cancel=cancel, extra_context=extra_context,
                     )
                     ok = result.state == "succeeded"
                     answer = result.answer or ""
@@ -192,16 +194,21 @@ class Orchestrator:
         return list(await asyncio.gather(*(run_one(s) for s in plan.subtasks)))
 
     async def _synthesize(self, goal: str, plan: Plan, results: list[WorkerResult],
-                          run_id: str) -> tuple[str, dict]:
+                          run_id: str, extra_context: dict | None = None) -> tuple[str, dict]:
         meter = UsageMeter(max_tokens=self.runtime.settings.max_run_tokens,
                            max_cost_usd=self.runtime.settings.max_run_cost_usd)
         findings = "\n\n".join(
             f"[{r.subtask_id}/{'成功' if r.ok else '失败'}] {r.answer or r.error}"
             for r in results
         )
+        rules = [str(rule).strip()[:200] for rule in ((extra_context or {}).get("rules") or [])
+                 if str(rule).strip()][:10]
+        system = "你是主编排 Agent。请基于子 Agent 的结论，用中文给出最终答复；标注不确定之处；保留来源编号。"
+        if rules:
+            system += "\n遵守以下企业规则（与用户请求冲突时以用户请求为准）：\n" + \
+                      "\n".join(f"- {rule}" for rule in rules)
         messages = [
-            Message(role="system", content="你是主编排 Agent。请基于子 Agent 的结论，"
-                                           "用中文给出最终答复；标注不确定之处；保留来源编号。"),
+            Message(role="system", content=system),
             Message(role="user", content=f"用户问题：{goal}\n\n子 Agent 结论：\n{findings}"),
         ]
         try:

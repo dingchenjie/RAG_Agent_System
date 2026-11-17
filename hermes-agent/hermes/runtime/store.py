@@ -50,6 +50,23 @@ class SessionStore:
         return Session(id=row["id"], tenant_id=row["tenant_id"], user_id=row["user_id"],
                        title=row["title"], created_at=row["created_at"], updated_at=row["updated_at"])
 
+    def list_sessions(self, *, tenant_id: str, user_id: str | None = None,
+                      limit: int = 20) -> list[Session]:
+        if user_id is None:
+            rows = self.db.query(
+                "SELECT * FROM sessions WHERE tenant_id=? ORDER BY updated_at DESC LIMIT ?",
+                (tenant_id, limit),
+            )
+        else:
+            rows = self.db.query(
+                "SELECT * FROM sessions WHERE tenant_id=? AND user_id=? "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (tenant_id, user_id, limit),
+            )
+        return [Session(id=r["id"], tenant_id=r["tenant_id"], user_id=r["user_id"],
+                        title=r["title"], created_at=r["created_at"], updated_at=r["updated_at"])
+                for r in rows]
+
     def add_message(self, session_id: str, message: Message) -> None:
         payload = {
             "tool_calls": [tc.to_dict() for tc in message.tool_calls],
@@ -90,13 +107,16 @@ class RunStore:
         self.db = db
 
     def create_run(self, *, session_id: str, tenant_id: str, user_id: str, user_input: str,
-                   idempotency_key: str | None = None, run_id: str | None = None) -> str:
+                   idempotency_key: str | None = None, run_id: str | None = None,
+                   request: dict | None = None) -> str:
         run_id = run_id or new_run_id()
         now = time.time()
         self.db.execute(
-            "INSERT INTO runs(id, session_id, tenant_id, user_id, input, state, created_at, updated_at, idempotency_key) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (run_id, session_id, tenant_id, user_id, user_input, "running", now, now, idempotency_key),
+            "INSERT INTO runs(id, session_id, tenant_id, user_id, input, state, request, "
+            "created_at, updated_at, idempotency_key) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (run_id, session_id, tenant_id, user_id, user_input, "running",
+             json.dumps(request, ensure_ascii=False) if request is not None else None,
+             now, now, idempotency_key),
         )
         return run_id
 
@@ -127,12 +147,14 @@ class RunStore:
         self.db.execute(f"UPDATE runs SET {', '.join(fields)} WHERE id=?", params)
 
     def save_checkpoint(self, run_id: str, *, messages: list[Message], step: int,
-                        pending: dict | None, usage: dict) -> None:
+                        pending: dict | None, usage: dict,
+                        context: dict | None = None) -> None:
         checkpoint = {
             "messages": [m.to_dict() for m in messages],
             "step": step,
             "pending": pending,
             "usage": usage,
+            "context": context,
         }
         self.db.execute(
             "UPDATE runs SET checkpoint=?, steps=?, updated_at=? WHERE id=?",
@@ -144,6 +166,22 @@ class RunStore:
         if not row or not row["checkpoint"]:
             return None
         return json.loads(row["checkpoint"])
+
+    def list_unfinished(self) -> list[dict]:
+        rows = self.db.query(
+            "SELECT * FROM runs WHERE state IN ('queued','running') ORDER BY created_at"
+        )
+        return [dict(r) for r in rows]
+
+    def mark_interrupted(self, run_id: str, reason: str) -> bool:
+        """只处理在途任务，避免把已结束的 run 改坏。"""
+        now = time.time()
+        cur = self.db.execute(
+            "UPDATE runs SET state='interrupted', error=?, updated_at=? "
+            "WHERE id=? AND state IN ('queued','running')",
+            (reason, now, run_id),
+        )
+        return cur.rowcount > 0
 
     def list_runs(self, *, session_id: str | None = None, limit: int = 20) -> list[dict]:
         if session_id:

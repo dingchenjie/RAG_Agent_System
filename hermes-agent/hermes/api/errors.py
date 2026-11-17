@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from ..errors import ApiError
+from ..security.redact import redact, redact_obj
 
 logger = logging.getLogger("hermes.api")
 
@@ -45,17 +46,18 @@ def install_error_handlers(app: FastAPI) -> None:
         logger.warning("[%s] %s %s -> %s %s", _request_id(request), request.method,
                        request.url.path, exc.status, exc.code)
         return _error_response(request, status=exc.status, code=exc.code,
-                               message=exc.message, details=exc.details)
+                               message=redact(exc.message), details=redact_obj(exc.details))
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # 校验错误会回显用户输入，可能带凭据，返回前统一清洗
         return _error_response(request, status=422, code="invalid_argument",
                                message="请求参数校验失败",
-                               details={"errors": exc.errors()[:5]})
+                               details=redact_obj({"errors": exc.errors()[:5]}))
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("[%s] unhandled error on %s %s", _request_id(request),
-                         request.method, request.url.path)
+        logger.error("[%s] unhandled error on %s %s: %s", _request_id(request),
+                     request.method, request.url.path, redact(str(exc)), exc_info=exc)
         return _error_response(request, status=500, code="internal_error",
                                message="服务内部错误，请凭 request_id 反馈")

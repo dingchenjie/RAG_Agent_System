@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 from ..errors import ToolError
 from ..observability.metrics import Metrics
+from ..security.redact import redact_obj
 from ..storage.db import Database
 from .base import ToolContext, ToolResult, ToolSpec
 
@@ -195,7 +196,7 @@ class ToolRegistry:
                     ctx.run_id,
                     spec.name,
                     spec.version,
-                    json.dumps(arguments, ensure_ascii=False, default=str)[:2000],
+                    json.dumps(redact_obj(arguments), ensure_ascii=False, default=str)[:2000],
                     1 if result.ok else 0,
                     result.code,
                     result.latency_ms,
@@ -223,6 +224,10 @@ class ToolView:
             for spec in self.parent.all_specs()
             if spec.name in self.names and ToolRegistry._allowed(spec, effective)
         ]
+
+    def get(self, name: str) -> ToolSpec | None:
+        # 版本等元信息不受子 Agent 权限影响；未授权工具仍返回 None，避免泄露存在性
+        return self.parent.get(name) if name in self.names else None
 
     async def execute(self, name: str, arguments: dict, ctx: ToolContext) -> ToolResult:
         if name not in self.names:

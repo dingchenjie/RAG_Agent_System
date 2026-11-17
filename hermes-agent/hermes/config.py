@@ -81,6 +81,9 @@ class Settings:
     auth_mode: str = "off"                # off | api_key（off 视为单租户管理员，仅建议本地/CI）
     api_keys: str = ""                    # key:tenant:user:scope1|scope2;...
 
+    # 主动触发
+    trigger_tick_s: float = 10.0          # 触发器扫描周期（秒），<=0 关闭后台循环（测试/CI）
+
 
     # 记忆
     memory_top_k: int = 4
@@ -133,6 +136,7 @@ class Settings:
             max_upload_mb=_env_int("HERMES_MAX_UPLOAD_MB", 20),
             auth_mode=_env_str("HERMES_AUTH_MODE", "off"),
             api_keys=_env_str("HERMES_API_KEYS", ""),
+            trigger_tick_s=_env_float("HERMES_TRIGGER_TICK_S", 10.0),
             memory_top_k=_env_int("HERMES_MEMORY_TOP_K", 4),
             memory_ttl_days=_env_int("HERMES_MEMORY_TTL_DAYS", 90),
             memory_min_confidence=_env_float("HERMES_MEMORY_MIN_CONFIDENCE", 0.5),
