@@ -1,4 +1,4 @@
-"""命令行入口：``hermes ask / chat / ingest / eval / serve``。
+"""命令行入口：``hermes ask / chat / ingest / eval / serve / lessons``。
 
 CLI 是唯一的人工入口——旧项目有 ``main_agent.py`` / ``main_cli.py`` / ``main_api.py``
 三个脚本，合并后统一到这里，避免"演示一条路、服务另一条路"。
@@ -96,7 +96,7 @@ def _eval(args: argparse.Namespace) -> int:
         state = build_state(Settings.from_env())
         _ensure_seed(state)
         runner = EvalRunner(runtime=state.runtime, event_store=state.event_store,
-                            dataset_path=args.dataset)
+                            dataset_path=args.dataset, orchestrator=state.orchestrator)
         report = await runner.run()
         print(report.markdown())
         summary = report.summary()
@@ -125,6 +125,29 @@ def _serve(args: argparse.Namespace) -> int:
 
     uvicorn.run(create_app(Settings.from_env()), host=args.host, port=args.port)
     return 0
+
+
+def _lessons(args: argparse.Namespace) -> int:
+    from .learning.lessons import LessonService
+
+    state = build_state(Settings.from_env())
+    try:
+        service = LessonService(state.db, tenant_id=args.tenant)
+        if args.activate or args.reject:
+            lesson_id = args.activate or args.reject
+            status = "active" if args.activate else "rejected"
+            ok = service.set_status(lesson_id, status)
+            print(f"{'已设为 ' + status if ok else '未找到该教训'}: {lesson_id}")
+            return 0 if ok else 1
+        records = service.list(status=args.status)
+        if not records:
+            print("（暂无教训：先跑几条失败任务，或换 --status 查看）")
+            return 0
+        for record in records:
+            print(f"{record.id} [{record.status}] {record.rule} hits={record.hits}\n  {record.content}")
+        return 0
+    finally:
+        state.db.close()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -158,6 +181,12 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
 
+    lessons = sub.add_parser("lessons", help="查看/启用/驳回自动提炼的教训")
+    lessons.add_argument("--tenant", default="default")
+    lessons.add_argument("--status", default=None, choices=["pending", "active", "rejected"])
+    lessons.add_argument("--activate", default=None, metavar="LESSON_ID")
+    lessons.add_argument("--reject", default=None, metavar="LESSON_ID")
+
     return parser
 
 
@@ -181,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
         return _eval(args)
     if args.command == "serve":
         return _serve(args)
+    if args.command == "lessons":
+        return _lessons(args)
     return 2
 
 

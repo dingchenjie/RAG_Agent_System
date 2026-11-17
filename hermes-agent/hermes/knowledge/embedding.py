@@ -38,7 +38,7 @@ def tokenize(text: str) -> list[str]:
     tokens = _WORD_RE.findall(lowered)
     cjk = _CJK_RE.findall(lowered)
     tokens.extend(cjk)
-    tokens.extend(a + b for a, b in zip(cjk, cjk[1:]))
+    tokens.extend(a + b for a, b in zip(cjk, cjk[1:], strict=False))
     return tokens
 
 
@@ -187,4 +187,4 @@ def build_embedder(
 def cosine(a: list[float], b: list[float]) -> float:
     if not a or not b:
         return 0.0
-    return sum(x * y for x, y in zip(a, b))
+    return sum(x * y for x, y in zip(a, b, strict=False))

@@ -35,7 +35,7 @@ async def main() -> int:
                                 version="1", acl=["finance"])
 
     runner = EvalRunner(runtime=state.runtime, event_store=state.event_store,
-                        dataset_path=args.dataset)
+                        dataset_path=args.dataset, orchestrator=state.orchestrator)
     report = await runner.run()
     print(report.markdown())
 

@@ -7,8 +7,10 @@
 - ``tools/``        工具与连接器：契约、注册表、版本、权限、沙箱、MCP 桥接
 - ``knowledge/``    知识与 RAG：文档处理、混合检索、ACL、增量索引、引用
 - ``memory/``       短期/长期记忆：提取、确认、召回、纠错、TTL、隔离
+- ``learning/``     经验沉淀：失败轨迹提炼教训、人工确认、注入上下文
+- ``security/``     安全边界：API Key→Principal、租户/scope 校验、不可信内容隔离
 - ``agents/``       多 Agent：主 Agent 规划拆解、子 Agent 并行、共享黑板
 - ``eval/``         观测与评测：轨迹、回放、版本对比、指标
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.1"

@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Sequence
+from typing import Any
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -126,6 +127,19 @@ CREATE TABLE IF NOT EXISTS chunks (
     updated_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(doc_id, version, active);
+
+CREATE TABLE IF NOT EXISTS lessons (
+    id          TEXT PRIMARY KEY,
+    tenant_id   TEXT NOT NULL,
+    rule        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    evidence    TEXT NOT NULL DEFAULT '{}',
+    status      TEXT NOT NULL DEFAULT 'pending',
+    hits        INTEGER NOT NULL DEFAULT 1,
+    created_at  REAL NOT NULL,
+    updated_at  REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_rule ON lessons(tenant_id, rule);
 """
 
 

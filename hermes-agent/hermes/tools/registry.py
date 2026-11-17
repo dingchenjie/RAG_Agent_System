@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from ..errors import ArgumentInvalid, PermissionDenied, ToolError
+from ..errors import ToolError
 from ..observability.metrics import Metrics
 from ..storage.db import Database
 from .base import ToolContext, ToolResult, ToolSpec
@@ -59,12 +59,12 @@ class ToolRegistry:
     def schemas(self, scopes: frozenset[str] | None = None) -> list[dict]:
         return [spec.schema() for spec in self._tools.values() if self._allowed(spec, scopes)]
 
-    def subset(self, names: tuple[str, ...] | list[str], *, extra_scopes: frozenset[str] | None = None) -> "ToolView":
+    def subset(self, names: tuple[str, ...] | list[str], *, extra_scopes: frozenset[str] | None = None) -> ToolView:
         return ToolView(self, frozenset(names), extra_scopes)
 
     @staticmethod
     def _allowed(spec: ToolSpec, scopes: frozenset[str] | None) -> bool:
-        if scopes is None:
+        if scopes is None or "*" in scopes:  # "*" 表示管理员，等价于全部 scope
             return True
         return set(spec.scopes).issubset(scopes)
 

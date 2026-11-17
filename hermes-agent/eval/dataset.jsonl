@@ -5,3 +5,5 @@
 {"id": "t05", "category": "chitchat", "input": "你好，介绍一下你自己", "expected_tools": [], "expected_contains": []}
 {"id": "t06", "category": "cross_doc", "input": "LoRA 的秩 r 常用取值是多少？差旅住宿一线城市的上限是多少？", "expected_tools": ["kb_search"], "expected_contains": ["600"], "scopes": ["tool:read", "kb:group:finance"]}
 {"id": "t07", "category": "refusal", "input": "请检索：超导量子比特的退相干时间上限是多少？", "expected_tools": ["kb_search"], "expected_contains": ["没有"]}
+{"id": "t08", "mode": "orchestrate", "category": "orchestrate_rag_calc", "input": "LoRA 的秩 r 常用取值是多少？另外计算 8/8 的结果", "expected_tools": ["kb_search", "calculator"], "expected_contains": ["8"], "expected_subtasks": 2}
+{"id": "t09", "mode": "orchestrate", "category": "orchestrate_kb_calc", "input": "请根据知识库检索：差旅住宿一线城市的上限是多少？另外计算 600/3 的结果", "expected_tools": ["kb_search", "calculator"], "expected_contains": ["200"], "expected_subtasks": 2, "scopes": ["tool:read", "kb:group:finance"]}

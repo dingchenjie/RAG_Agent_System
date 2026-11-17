@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..security.untrusted import wrap_untrusted
 from .index import Hit, IngestReport, KnowledgeIndex
 from .loaders import load_document
-from .rerank import RRFReranker, Reranker
+from .rerank import Reranker, RRFReranker
 from .splitter import dedupe, split_text
 
 _SUPPORTED_SUFFIXES = {".pdf", ".md", ".markdown", ".txt", ".text", ".html", ".htm", ".docx"}
@@ -95,14 +96,24 @@ class KnowledgeService:
 
     # ---------- 渲染 ----------
     @staticmethod
-    def render_context(hits: list[Hit], *, max_chars_per_hit: int = 500) -> str:
+    def render_context(hits: list[Hit], *, max_chars_per_hit: int = 500, wrap: bool = True) -> str:
+        """渲染检索结果。
+
+        ``wrap=False`` 用于工具返回值：工具输出在 Runtime 边界已统一包裹为不可信内容，
+        这里再包一层会造成嵌套转义、白白吃掉上下文预算。
+        """
         if not hits:
             return ""
         blocks = []
         for i, hit in enumerate(hits, start=1):
             text = hit.text[:max_chars_per_hit]
             title = f"《{hit.title}》" if hit.title else ""
-            blocks.append(f"[{i}] {title}{hit.citation}\n{text}")
+            body = f"[{i}] {title}{hit.citation}\n{text}"
+            if wrap:
+                body = wrap_untrusted(
+                    "retrieved_document", body,
+                    {"index": str(i), "doc_id": hit.doc_id, "source": hit.citation})
+            blocks.append(body)
         return "\n\n".join(blocks)
 
     @staticmethod

@@ -141,7 +141,7 @@ def build_default_tools(
         if not hits:
             return ToolResult(ok=True, content="知识库中没有检索到相关内容。",
                               meta={"citations": []})
-        content = knowledge.render_context(hits)
+        content = knowledge.render_context(hits, wrap=False)
         return ToolResult(ok=True, content=content, meta={"citations": knowledge.citations(hits)})
 
     async def kb_ingest(args: KBIngestArgs, ctx: ToolContext) -> ToolResult:

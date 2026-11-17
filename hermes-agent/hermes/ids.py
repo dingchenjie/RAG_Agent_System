@@ -28,3 +28,7 @@ def new_memory_id() -> str:
 
 def new_span_id() -> str:
     return new_id("sp")
+
+
+def new_lesson_id() -> str:
+    return new_id("lesson")

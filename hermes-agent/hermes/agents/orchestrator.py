@@ -8,14 +8,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
 from ..llm.base import LLMProvider
 from ..observability.events import Event, EventBus, EventType
-from ..observability.tracing import Usage, UsageMeter
+from ..observability.tracing import UsageMeter
 from ..runtime.cancel import CancelToken
 from ..runtime.runtime import AgentRuntime, RunResult
 from ..types import Message

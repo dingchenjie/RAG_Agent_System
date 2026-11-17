@@ -63,6 +63,8 @@ class EventType(str, Enum):
     AGENT_FAILED = "agent.failed"
     BLACKBOARD_UPDATED = "blackboard.updated"
 
+    LESSON_PROPOSED = "lesson.proposed"
+
     SPAN_STARTED = "span.started"
     SPAN_ENDED = "span.ended"
 
@@ -91,7 +93,7 @@ class Event:
         }
 
     @classmethod
-    def from_row(cls, row: Any) -> "Event":
+    def from_row(cls, row: Any) -> Event:
         return cls(
             run_id=row["run_id"],
             seq=row["seq"],

@@ -75,6 +75,12 @@ class Settings:
     dedupe_threshold: float = 0.92        # 分块去冗余的余弦阈值，<=0 关闭
     faithfulness_min_support: float = 0.6  # 单句被引用支撑的最低 n-gram 覆盖率
     upload_dir: str = "data/uploads"
+    max_upload_mb: int = 20               # 单文件上传上限（MiB）
+
+    # 安全
+    auth_mode: str = "off"                # off | api_key（off 视为单租户管理员，仅建议本地/CI）
+    api_keys: str = ""                    # key:tenant:user:scope1|scope2;...
+
 
     # 记忆
     memory_top_k: int = 4
@@ -88,7 +94,7 @@ class Settings:
     context: ContextConfig = field(default_factory=ContextConfig)
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         ctx = ContextConfig(
             total_tokens=_env_int("HERMES_CONTEXT_TOKENS", 4096),
             reserve_output_tokens=_env_int("HERMES_RESERVE_OUTPUT_TOKENS", 512),
@@ -124,6 +130,9 @@ class Settings:
             dedupe_threshold=_env_float("HERMES_DEDUPE_THRESHOLD", 0.92),
             faithfulness_min_support=_env_float("HERMES_FAITHFULNESS_MIN_SUPPORT", 0.6),
             upload_dir=_env_str("HERMES_UPLOAD_DIR", "data/uploads"),
+            max_upload_mb=_env_int("HERMES_MAX_UPLOAD_MB", 20),
+            auth_mode=_env_str("HERMES_AUTH_MODE", "off"),
+            api_keys=_env_str("HERMES_API_KEYS", ""),
             memory_top_k=_env_int("HERMES_MEMORY_TOP_K", 4),
             memory_ttl_days=_env_int("HERMES_MEMORY_TTL_DAYS", 90),
             memory_min_confidence=_env_float("HERMES_MEMORY_MIN_CONFIDENCE", 0.5),

@@ -12,8 +12,8 @@ import json
 import math
 import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 from ..errors import HermesError
 from ..storage.db import Database
@@ -144,7 +144,7 @@ class KnowledgeIndex:
                  1 if activate else 0, getattr(self.embedder, "name", "unknown"),
                  getattr(self.embedder, "dim", None), now),
             )
-            for idx, (chunk, vec) in enumerate(zip(chunks, embeddings)):
+            for idx, (chunk, vec) in enumerate(zip(chunks, embeddings, strict=False)):
                 chunk_id = hashlib.sha1(f"{doc_id}|{version}|{idx}|{chunk}".encode()).hexdigest()[:24]
                 conn.execute(
                     "INSERT OR REPLACE INTO chunks(chunk_id, doc_id, version, ord, text, embedding, active, updated_at) "

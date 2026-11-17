@@ -52,7 +52,7 @@ class CrossEncoderReranker:
             return []
         model = self._load()
         scores = model.predict([[query, hit.text] for hit in hits])
-        ordered = sorted(zip(hits, scores), key=lambda pair: float(pair[1]), reverse=True)
+        ordered = sorted(zip(hits, scores, strict=False), key=lambda pair: float(pair[1]), reverse=True)
         return [hit for hit, _ in ordered[:top_k]]
 
 

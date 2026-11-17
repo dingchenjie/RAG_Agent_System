@@ -8,8 +8,8 @@ LLM 的上下文是有限预算资源，Runtime 必须显式管理它，而不�
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from ..config import ContextConfig
 from ..tokens import estimate_tokens, truncate_tokens
@@ -140,7 +140,7 @@ class ContextBuilder:
             system_content += f"\n\n[历史摘要]\n{summary_text}"
             report.summary_tokens = summary_tokens
             report.sections.append({"name": "history_summary", "tokens": summary_tokens, "kept": True})
-        for name, text, used in blocks:
+        for name, text, _used in blocks:
             system_content += f"\n\n[{name}]\n{text}"
         report.sections.insert(0, {"name": "system", "tokens": system_tokens, "kept": True})
 

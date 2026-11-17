@@ -26,6 +26,9 @@ class TaskResult:
     citations: int = 0
     faithfulness: float | None = None
     error: str | None = None
+    mode: str = "single"
+    subtasks: int = 0
+    subtasks_ok: int = 0
 
     @property
     def missing_keywords(self) -> list[str]:
@@ -33,21 +36,24 @@ class TaskResult:
 
     def to_dict(self) -> dict:
         return {
-            "task_id": self.task_id, "category": self.category, "ok": self.ok,
+            "task_id": self.task_id, "category": self.category, "mode": self.mode, "ok": self.ok,
             "answer": self.answer, "missing_keywords": self.missing_keywords,
             "expected_tools": self.expected_tools, "called_tools": self.called_tools,
             "latency_ms": round(self.latency_ms, 2), "steps": self.steps,
             "tokens": self.tokens, "cost_usd": round(self.cost_usd, 6),
             "citations": self.citations, "faithfulness": self.faithfulness, "error": self.error,
+            "subtasks": self.subtasks, "subtasks_ok": self.subtasks_ok,
         }
 
 
 @dataclass
 class EvalReport:
     results: list[TaskResult] = field(default_factory=list)
+    meta: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {"summary": self.summary(), "tasks": [r.to_dict() for r in self.results]}
+        return {"meta": self.meta, "summary": self.summary(),
+                "tasks": [r.to_dict() for r in self.results]}
 
     def summary(self) -> dict:
         if not self.results:
@@ -55,9 +61,15 @@ class EvalReport:
         total = len(self.results)
         latencies = sorted(r.latency_ms for r in self.results)
         scored = [r.faithfulness for r in self.results if r.faithfulness is not None]
+        subtask_total = sum(r.subtasks for r in self.results)
         return {
             "tasks": total,
             "success_rate": round(sum(1 for r in self.results if r.ok) / total, 4),
+            "subtask_success_rate": (
+                round(sum(r.subtasks_ok for r in self.results) / subtask_total, 4)
+                if subtask_total else None
+            ),
+            "by_mode": self._by_mode(),
             "tool_precision": round(_mean(_precision(r) for r in self.results), 4),
             "tool_recall": round(_mean(_recall(r) for r in self.results), 4),
             "tool_f1": round(_mean(_f1(r) for r in self.results), 4),
@@ -72,6 +84,24 @@ class EvalReport:
             "latency_p95_ms": round(_percentile(latencies, 95), 2),
         }
 
+    def _by_mode(self) -> dict:
+        groups: dict[str, list[TaskResult]] = {}
+        for result in self.results:
+            groups.setdefault(result.mode, []).append(result)
+        by_mode = {}
+        for mode, items in sorted(groups.items()):
+            subtask_total = sum(r.subtasks for r in items)
+            by_mode[mode] = {
+                "tasks": len(items),
+                "success_rate": round(sum(1 for r in items if r.ok) / len(items), 4),
+                "subtask_success_rate": (
+                    round(sum(r.subtasks_ok for r in items) / subtask_total, 4)
+                    if subtask_total else None
+                ),
+                "avg_latency_ms": round(_mean(r.latency_ms for r in items), 2),
+            }
+        return by_mode
+
     def markdown(self) -> str:
         s = self.summary()
         lines = [
@@ -79,6 +109,10 @@ class EvalReport:
             "| :--- | ---: |",
             f"| 任务数 | {s.get('tasks', 0)} |",
             f"| 任务成功率 | {s.get('success_rate', 0):.2%} |",
+        ]
+        if s.get("subtask_success_rate") is not None:
+            lines.append(f"| 子任务成功率 | {s['subtask_success_rate']:.2%} |")
+        lines += [
             f"| 工具选择 F1 | {s.get('tool_f1', 0):.4f} |",
             f"| 工具精确率 / 召回率 | {s.get('tool_precision', 0):.4f} / {s.get('tool_recall', 0):.4f} |",
             f"| 忠实度（引用支撑） | {_fmt_faithfulness(s.get('faithfulness_avg'))} |",
@@ -86,12 +120,34 @@ class EvalReport:
             f"| 平均 token | {s.get('avg_tokens', 0)} |",
             f"| P50 / P95 延迟 | {s.get('latency_p50_ms', 0)} ms / {s.get('latency_p95_ms', 0)} ms |",
             "",
-            "| 任务 | 类别 | 结果 | 期望工具 | 实际工具 | 忠实度 | 延迟(ms) |",
-            "| :--- | :--- | :--- | :--- | :--- | ---: | ---: |",
+        ]
+        if self.meta:
+            lines += [
+                "| 运行环境 | 取值 |",
+                "| :--- | :--- |",
+                f"| 数据集 | {self.meta.get('dataset', '-')}（{self.meta.get('dataset_size', 0)} 条） |",
+                f"| 模式 | {', '.join(self.meta.get('modes', [])) or '-'} |",
+                f"| LLM | {self.meta.get('llm_provider', '-')} / {self.meta.get('llm_model', '-')} |",
+                f"| Embedding / Rerank | {self.meta.get('embedding', '-')} / {self.meta.get('rerank', '-')} |",
+                "",
+            ]
+        if len(s.get("by_mode", {})) > 1:
+            lines += ["| 模式 | 任务数 | 成功率 | 子任务成功率 | 平均延迟(ms) |",
+                      "| :--- | ---: | ---: | ---: | ---: |"]
+            for mode, item in s["by_mode"].items():
+                sub = item.get("subtask_success_rate")
+                lines.append(
+                    f"| {mode} | {item['tasks']} | {item['success_rate']:.2%} | "
+                    f"{'-' if sub is None else f'{sub:.2%}'} | {item['avg_latency_ms']:.0f} |"
+                )
+            lines.append("")
+        lines += [
+            "| 任务 | 类别 | 模式 | 结果 | 期望工具 | 实际工具 | 忠实度 | 延迟(ms) |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | ---: | ---: |",
         ]
         for r in self.results:
             lines.append(
-                f"| {r.task_id} | {r.category} | {'✅' if r.ok else '❌'} | "
+                f"| {r.task_id} | {r.category} | {r.mode} | {'✅' if r.ok else '❌'} | "
                 f"{','.join(r.expected_tools) or '-'} | {','.join(r.called_tools) or '-'} | "
                 f"{_fmt_faithfulness(r.faithfulness)} | {r.latency_ms:.0f} |"
             )

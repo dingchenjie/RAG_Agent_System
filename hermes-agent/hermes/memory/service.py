@@ -5,16 +5,15 @@
 """
 from __future__ import annotations
 
-import json
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from ..errors import NotFound
 from ..ids import new_memory_id
+from ..knowledge.embedding import Embedder, cosine, tokenize
 from ..storage.db import Database
 from .extractor import MemoryCandidate, MemoryExtractor, RuleMemoryExtractor
-from ..knowledge.embedding import Embedder, cosine, tokenize
 
 
 @dataclass
@@ -34,7 +33,7 @@ class MemoryRecord:
     expires_at: float | None
 
     @classmethod
-    def from_row(cls, row) -> "MemoryRecord":
+    def from_row(cls, row) -> MemoryRecord:
         return cls(
             id=row["id"], tenant_id=row["tenant_id"], user_id=row["user_id"], mtype=row["mtype"],
             mkey=row["mkey"], value=row["value"], confidence=row["confidence"], status=row["status"],

@@ -44,7 +44,7 @@ def dedupe(chunks: list[str], embedder: Embedder, threshold: float = 0.92) -> li
         return list(chunks)
     kept: list[str] = []
     kept_vectors: list[list[float]] = []
-    for chunk, vector in zip(chunks, embedder.embed(chunks)):
+    for chunk, vector in zip(chunks, embedder.embed(chunks), strict=False):
         if any(cosine(vector, kept_vector) > threshold for kept_vector in kept_vectors):
             continue
         kept.append(chunk)

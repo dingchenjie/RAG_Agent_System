@@ -9,7 +9,7 @@ from .embedding import (
 )
 from .index import Hit, IngestReport, KnowledgeIndex, chunk_text
 from .loaders import Document, load_document
-from .rerank import CrossEncoderReranker, RRFReranker, Reranker, build_reranker
+from .rerank import CrossEncoderReranker, Reranker, RRFReranker, build_reranker
 from .service import KnowledgeService
 from .splitter import dedupe, split_text
 

@@ -22,7 +22,7 @@ def test_healthz_reports_embedder_and_reranker(client):
 
 
 def test_upload_list_and_delete_document(client):
-    content = "# 上传文档\nLoRA 的秩 r 常用 8 或 16。".encode("utf-8")
+    content = "# 上传文档\nLoRA 的秩 r 常用 8 或 16。".encode()
     response = client.post(
         "/v1/knowledge/files",
         files={"file": ("upload.md", content, "text/markdown")},

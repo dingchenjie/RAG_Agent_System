@@ -88,7 +88,7 @@ class ResilientLLM(LLMProvider):
                 )
                 self.breaker.record_success()
                 return response
-            except asyncio.TimeoutError as exc:
+            except asyncio.TimeoutError:
                 last_error = LLMTimeout(f"模型调用超时（>{self.timeout_s}s）")
             except LLMError as exc:
                 last_error = exc

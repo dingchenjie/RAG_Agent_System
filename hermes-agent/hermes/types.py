@@ -18,7 +18,7 @@ class ToolCall:
         return {"id": self.id, "name": self.name, "arguments": self.arguments}
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ToolCall":
+    def from_dict(cls, data: dict) -> ToolCall:
         return cls(id=data["id"], name=data["name"], arguments=data.get("arguments") or {})
 
 
@@ -46,7 +46,7 @@ class Message:
         return data
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Message":
+    def from_dict(cls, data: dict) -> Message:
         return cls(
             role=data.get("role", "user"),
             content=data.get("content", "") or "",
@@ -85,7 +85,7 @@ class Usage:
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
 
-    def add(self, other: "Usage") -> "Usage":
+    def add(self, other: Usage) -> Usage:
         self.prompt_tokens += other.prompt_tokens
         self.completion_tokens += other.completion_tokens
         self.cost_usd += other.cost_usd
@@ -100,7 +100,7 @@ class Usage:
         }
 
     @classmethod
-    def from_dict(cls, data: dict | None) -> "Usage":
+    def from_dict(cls, data: dict | None) -> Usage:
         data = data or {}
         return cls(
             prompt_tokens=int(data.get("prompt_tokens", 0)),

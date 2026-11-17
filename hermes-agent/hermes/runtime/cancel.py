@@ -6,7 +6,8 @@ Agent 的取消不是"停个循环"那么简单：必须能打断正在进行的
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, TypeVar
+from collections.abc import Awaitable
+from typing import TypeVar
 
 from ..errors import CancelledByUser
 

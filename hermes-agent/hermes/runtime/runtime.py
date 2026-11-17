@@ -14,20 +14,22 @@
 from __future__ import annotations
 
 import asyncio
-import time
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..config import Settings
 from ..errors import BudgetExceeded, CancelledByUser, HermesError
 from ..ids import new_run_id
+from ..learning.lessons import LessonService
 from ..llm.base import LLMProvider
 from ..memory.service import MemoryService
 from ..observability.events import Event, EventBus, EventType
 from ..observability.metrics import Metrics
 from ..observability.tracing import Tracer, UsageMeter, compute_cost
+from ..security.untrusted import SAFETY_CLAUSE, wrap_untrusted
 from ..tools.base import ToolContext
-from ..types import Message, Usage
+from ..types import Message
 from .cancel import CancelToken, run_with_cancel
 from .context import ContextBuilder, ContextReport
 from .store import RunStore, SessionStore
@@ -44,7 +46,9 @@ DEFAULT_SYSTEM_PROMPT = (
     "5. 工具返回 ERROR 时先判断能否换一种参数重试，不要重复同样的失败调用；\n"
     "6. 需要写操作（如记住用户信息）时先说明将要做什么；\n"
     "7. 寒暄、自我介绍等与业务无关的问题直接回答，不要调用工具。"
-)
+) + SAFETY_CLAUSE
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -87,6 +91,7 @@ class AgentRuntime:
         memory: MemoryService | None = None,
         knowledge: Any | None = None,
         builder: ContextBuilder | None = None,
+        lessons: LessonService | None = None,
         system_prompt: str | None = None,
         max_steps: int | None = None,
         agent_name: str = "main",
@@ -100,6 +105,7 @@ class AgentRuntime:
         self.metrics = metrics or Metrics()
         self.memory = memory
         self.knowledge = knowledge
+        self.lessons = lessons
         self.builder = builder or ContextBuilder(settings.context)
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.max_steps = max_steps or settings.max_steps
@@ -224,8 +230,12 @@ class AgentRuntime:
                     ),
                     cancel,
                 )
-                history.append(Message(role="tool", content=self._truncate_tool(result.content),
-                                       tool_call_id=pending.get("id"), name=pending["name"]))
+                history.append(Message(
+                    role="tool",
+                    content=self._truncate_tool(wrap_untrusted(
+                        "tool_output", result.content,
+                        {"tool": pending["name"], "agent": self.agent_name})),
+                    tool_call_id=pending.get("id"), name=pending["name"]))
                 self.sessions.add_message(session_id, history[-1])
                 await self._emit(run_id, EventType.TOOL_CALL_COMPLETED if result.ok else EventType.TOOL_CALL_FAILED,
                                  {"tool": pending["name"], "confirmed": True, "ok": result.ok,
@@ -312,8 +322,12 @@ class AgentRuntime:
                         })
                         continue
 
-                    tool_message = Message(role="tool", content=self._truncate_tool(result.render()),
-                                           tool_call_id=tool_call.id, name=tool_call.name)
+                    tool_message = Message(
+                        role="tool",
+                        content=self._truncate_tool(wrap_untrusted(
+                            "tool_output", result.render(),
+                            {"tool": tool_call.name, "agent": self.agent_name})),
+                        tool_call_id=tool_call.id, name=tool_call.name)
                     history.append(tool_message)
                     self.sessions.add_message(session_id, tool_message)
                     await self._emit(
@@ -366,6 +380,8 @@ class AgentRuntime:
             self.metrics.inc("hermes_runs_total", state=state)
 
         self.metrics.observe("hermes_run_steps", step)
+        await self._observe_lessons(run_id, state=state, answer=answer or "",
+                                    steps=step, citations=len(citations), tenant_id=tenant_id)
         return RunResult(
             run_id=run_id, state=state, answer=answer, steps=step,
             usage=usage_snapshot["total"], citations=citations,
@@ -375,7 +391,7 @@ class AgentRuntime:
 
     # ------------------------------------------------------------- helpers
     def with_tools(self, names: list[str], *, agent_name: str | None = None,
-                   system_prompt: str | None = None, max_steps: int | None = None) -> "AgentRuntime":
+                   system_prompt: str | None = None, max_steps: int | None = None) -> AgentRuntime:
         """派生一个只暴露指定工具的子 Agent 运行时（最小权限）。"""
         registry = self.registry
         if hasattr(registry, "subset"):
@@ -391,6 +407,7 @@ class AgentRuntime:
             memory=self.memory,
             knowledge=self.knowledge,
             builder=self.builder,
+            lessons=self.lessons,
             system_prompt=system_prompt or self.system_prompt,
             max_steps=max_steps or self.max_steps,
             agent_name=agent_name or f"{self.agent_name}.worker",
@@ -399,6 +416,11 @@ class AgentRuntime:
     async def _prepare_context(self, query: str, tenant_id: str, user_id: str,
                                scopes: frozenset[str], injected: dict[str, str],
                                citations: list[dict], recalled: list[dict], run_id: str) -> None:
+        if self.lessons is not None:
+            guidance = self.lessons.render_active(limit=3, tenant_id=tenant_id)
+            if guidance:
+                injected["历史教训"] = guidance
+
         if self.memory is not None:
             memories = self.memory.recall(tenant_id=tenant_id, user_id=user_id, query=query,
                                           top_k=self.settings.memory_top_k)
@@ -439,6 +461,26 @@ class AgentRuntime:
             await self._emit(run_id, EventType.MEMORY_PROPOSED, {
                 "count": len(created),
                 "items": [{"id": m.id, "key": m.mkey, "value": m.value, "status": m.status} for m in created],
+            })
+
+    async def _observe_lessons(self, run_id: str, *, state: str, answer: str,
+                               steps: int, citations: int, tenant_id: str) -> None:
+        """运行结束后提炼教训；提炼失败绝不能影响主流程。"""
+        if self.lessons is None or state not in ("succeeded", "failed"):
+            return
+        try:
+            proposed = self.lessons.observe_run(
+                run_id=run_id, events=self.bus.buffered(run_id), state=state,
+                answer=answer, steps=steps, max_steps=self.max_steps, citations=citations,
+                tenant_id=tenant_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("教训提炼失败: %s", exc)
+            return
+        for lesson in proposed:
+            await self._emit(run_id, EventType.LESSON_PROPOSED, {
+                "id": lesson.id, "rule": lesson.rule, "status": lesson.status,
+                "content": lesson.content[:300],
             })
 
     def _truncate_tool(self, content: str) -> str:

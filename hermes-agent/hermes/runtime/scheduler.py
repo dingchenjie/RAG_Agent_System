@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 
 class RunScheduler:

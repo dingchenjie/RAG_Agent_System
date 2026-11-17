@@ -8,8 +8,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
@@ -23,7 +24,7 @@ class ToolContext:
     tenant_id: str = "default"
     user_id: str = "anonymous"
     scopes: frozenset[str] = frozenset({"tool:read"})
-    cancel: "CancelToken | None" = None
+    cancel: CancelToken | None = None
     deadline: float | None = None
     confirmed: bool = False
     dry_run: bool = False

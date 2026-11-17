@@ -17,7 +17,8 @@ def test_eval_report_metrics(settings):
     ingest_seed_docs(state)
 
     runner = EvalRunner(runtime=state.runtime, event_store=state.event_store,
-                        dataset_path=ROOT / "eval" / "dataset.jsonl")
+                        dataset_path=ROOT / "eval" / "dataset.jsonl",
+                        orchestrator=state.orchestrator)
     tasks = runner.load_tasks()
     assert len(tasks) >= 5
 
@@ -32,6 +33,8 @@ def test_eval_report_metrics(settings):
     assert summary["faithfulness_tasks"] >= 1
     assert 0 < summary["faithfulness_avg"] <= 1
     assert "忠实度" in report.markdown()
+    assert set(summary["by_mode"]) == {"single", "orchestrate"}
+    assert report.meta["dataset_size"] == len(tasks)
 
 
 def test_single_task_trace_based_tool_check(settings):
@@ -47,3 +50,21 @@ def test_single_task_trace_based_tool_check(settings):
     assert result.called_tools == ["kb_search"]
     assert result.citations >= 1
     assert result.faithfulness is not None and result.faithfulness > 0
+
+
+def test_orchestrated_task_aggregates_worker_traces(settings):
+    state = build_state(settings, MockLLM())
+    ingest_seed_docs(state)
+    runner = EvalRunner(runtime=state.runtime, event_store=state.event_store,
+                        dataset_path=ROOT / "eval" / "dataset.jsonl",
+                        orchestrator=state.orchestrator)
+    result = asyncio.run(runner.run_task({
+        "id": "o1", "mode": "orchestrate", "category": "orchestrate_rag_calc",
+        "input": "LoRA 的秩 r 常用取值是多少？另外计算 8/8 的结果",
+        "expected_tools": ["kb_search", "calculator"], "expected_contains": ["8"],
+        "expected_subtasks": 2,
+    }))
+    assert result.mode == "orchestrate"
+    assert result.subtasks == 2 and result.subtasks_ok == 2
+    assert set(result.expected_tools) <= set(result.called_tools)
+    assert result.ok, result.error

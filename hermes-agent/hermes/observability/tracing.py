@@ -6,9 +6,10 @@
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any
 
 from ..errors import BudgetExceeded
 from ..ids import new_span_id

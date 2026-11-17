@@ -58,3 +58,16 @@ class BudgetExceeded(HermesError):
 
 class NotFound(HermesError):
     code = "not_found"
+
+
+class ApiError(HermesError):
+    """对外 HTTP 错误：``status`` 决定状态码，``code`` 保持稳定可断言。"""
+
+    code = "api_error"
+
+    def __init__(self, message: str, *, code: str | None = None, status: int = 400,
+                 details: dict | None = None):
+        super().__init__(message, code=code)
+        self.status = status
+        self.details = details or {}
+

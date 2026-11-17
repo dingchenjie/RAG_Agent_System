@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 
 import pytest
 
 from hermes.api.app import build_state
 from hermes.llm.mock import MockLLM
-from hermes.observability.events import EventType
 from hermes.tools.base import ToolContext
 from hermes.tools.mcp_bridge import MCPToolBridge
 from tests.conftest import ingest_seed_docs
@@ -44,7 +42,6 @@ def test_mcp_bridge_exposes_remote_tools(settings, monkeypatch):
     assert result.ok, result.error
     assert "8" in result.content
 
-    audit = state.registry  # 审计落库在 tool_audit 表
     rows = state.db.query("SELECT * FROM tool_audit WHERE tool LIKE 'mcp__kb__%'")
     assert rows, "MCP 工具调用同样要留审计"
 
