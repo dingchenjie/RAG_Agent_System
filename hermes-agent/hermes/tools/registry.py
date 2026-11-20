@@ -102,7 +102,8 @@ class ToolRegistry:
                 latency_ms=_ms(started),
             )
 
-        idem_key = self._idem_key(spec, args, ctx.run_id) if spec.idempotent else None
+        idem_key = (self._idem_key(spec, args, ctx.run_id, ctx.tenant_id, ctx.scopes)
+                    if spec.idempotent else None)
         if idem_key:
             cached = self._idem_get(idem_key)
             if cached is not None:
@@ -160,14 +161,18 @@ class ToolRegistry:
             return await out
         return out
 
-    def _idem_key(self, spec: ToolSpec, args: Any, run_id: str = "") -> str:
-        """幂等键按 run 作用域：只消除同一 run 内的重复调用（模型重试、重复工具调用）。
+    def _idem_key(self, spec: ToolSpec, args: Any, run_id: str = "",
+                  tenant_id: str = "default", scopes: frozenset[str] | None = None) -> str:
+        """幂等键按 run + 租户 + 权限作用域：只消除同一调用者视角内的重复调用。
 
         不能跨 run 复用：读类工具（知识库、记忆、时钟）的结果会随时间变化，
         跨 run 命中旧缓存会返回过期事实——这类"缓存幻觉"比性能问题更危险。
+        也不能跨租户/权限复用：知识库结果受 ACL 影响，否则会串租户或出现假阴性。
         """
         payload = json.dumps(args.model_dump(), sort_keys=True, ensure_ascii=False, default=str)
-        return hashlib.sha256(f"{spec.name}|{spec.version}|{run_id}|{payload}".encode()).hexdigest()
+        scope_part = ",".join(sorted(scopes or ()))
+        raw = f"{spec.name}|{spec.version}|{run_id}|{tenant_id}|{scope_part}|{payload}"
+        return hashlib.sha256(raw.encode()).hexdigest()
 
     def _idem_get(self, key: str) -> str | None:
         if self.db is not None:
