@@ -1,5 +1,7 @@
 ﻿﻿﻿﻿# Hermes Agent
 
+> 仓库位置：本目录是主项目；同仓库还有 [`market-scout/`](../market-scout/)（业务 Agent）与 [`rag-agent-v1/`](../rag-agent-v1/)（v1 原版 RAG）。总入口见根 [README](../README.md)。
+
 一个**能托管长任务、可被干预、可复盘、可评测**的 Agent 工程：把"模型 + 工具"的 Demo，做成覆盖
 **Runtime / 上下文工程 / 工具与 MCP / RAG 知识层 / 长期记忆 / 多 Agent 调度 / 可观测评测**的完整系统。
 
@@ -243,7 +245,7 @@ P95 **4260 ± 905 ms**，总成本 **$0.023057 ± $0.000542**。单轮 95.45% �
 
 **真实模型暴露的问题，比数字本身更有价值：**
 
-1. **唯一失败是"声称做了但没做"**：t13（"我叫丁辰杰，请记住我偏好 Python"）没有调用 `memory_recall`，却回答"已经记住了"。记忆抽取在后台只写入了 `pending` 候选，未确认不可召回——这是典型的工具调用幻觉。失败样本已由 `--record-failures` 落到 [failures.jsonl](file:///e:/RAG_Agent_System%20-%20副本%20(2)/hermes-agent/eval/regressions/failures.jsonl)，下一轮直接重放。
+1. **唯一失败是"声称做了但没做"**：t13（"我叫丁辰杰，请记住我偏好 Python"）没有调用 `memory_recall`，却回答"已经记住了"。记忆抽取在后台只写入了 `pending` 候选，未确认不可召回——这是典型的工具调用幻觉。失败样本已由 `--record-failures` 落到 [failures.jsonl](eval/regressions/failures.jsonl)，下一轮直接重放。
 2. **另一条是格式差异，不是能力回归**：t20 回答"10个工作日内"、期望写的是"10 个工作日"。评测改为空白不敏感匹配（`_keyword_matches`）并补了单测，避免把排版差异算成失败。
 3. **orchestrate 在真实模型下 4/4**：规则 Planner 把"检索 + 计算"拆成子任务，并行执行后汇总；single 的 1 条失败没有扩散成编排失败。
 

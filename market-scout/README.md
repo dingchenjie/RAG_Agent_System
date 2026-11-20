@@ -4,6 +4,8 @@
 
 > 技术栈：LangGraph 1.x（StateGraph + Send 并行 + Checkpointer + 人工审批中断）、Playwright、MCP（FastMCP）、FastAPI + SSE、SQLite FTS5、httpx、Langfuse（可选自托管）。
 
+> 仓库位置：本目录是业务项目；同仓库主项目是 [`hermes-agent/`](../hermes-agent/)，另有 [`rag-agent-v1/`](../rag-agent-v1/)（v1 原版 RAG）。总入口见根 [README](../README.md)。
+
 ---
 
 ## 1. 场景与难点

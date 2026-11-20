@@ -1,12 +1,20 @@
-# archive：项目演进留档
+# archive：历史版本留档
 
-这里保留两个历史版本，**不参与演示，也不再维护**。保留原因只有一个：面试时能讲清"我为什么改"。
+这里只保留 v2 的运行时骨架，**不参与演示，也不再维护**。保留原因只有一个：面试时能讲清"我为什么改"。
 
+```text
+v1  ../rag-agent-v1/        纯 RAG Agent：ReAct + if/elif 工具 + Chroma + 交叉重排 + RAGAS 单指标
+v2  hermes-runtime-v2/      Agent Runtime：上下文工程 / 工具九道关 / 记忆 / 多 Agent / 评测 / 可观测
+v3  ../hermes-agent/        合并版：v2 的运行时骨架 + v1 的真实文档链路，唯一对外主项目
 ```
-v1  rag-agent-v1/        纯 RAG Agent：ReAct + if/elif 工具 + Chroma + 交叉重排 + RAGAS 单指标
-v2  hermes-runtime-v2/   Agent Runtime：上下文工程 / 工具九道关 / 记忆 / 多 Agent / 评测 / 可观测
-v3  ../hermes-agent/     合并版：v2 的运行时骨架 + v1 的真实文档链路，唯一对外项目
-```
+
+> v1 已从 `archive/` 移到仓库顶层 [`rag-agent-v1/`](../rag-agent-v1/)，因为它是简历上对应的项目，需要有可见入口；`archive/` 只放"中间形态"的 v2。
+
+## 对外引用口径
+
+- **简历/作品集只写两个项目**：`hermes-agent/` 与 `market-scout/`；
+- `rag-agent-v1/` 作为"简历上那个项目"的原始版本保留，不作为新项目推荐；
+- `archive/` 不作为任何项目入口，只在被追问"你之前那版怎么做的"时用于对照阅读。
 
 ## v1 → v2：为什么重做运行时
 
@@ -31,8 +39,14 @@ v3 的取舍：
 - 丢弃 v1 的**实现**（ChromaDB、sklearn 全量相似矩阵、`eval()`、启动即全量建库）；
 - 依赖改为"基础零重型依赖 + `[semantic]` / `[ragas]` 可选"，保证 clone 即跑。
 
+## v3 → market-scout：为什么又做了一个业务项目
+
+`hermes-agent` 证明的是"底座能跑稳"，但它不是给真实用户用的产品。
+`market-scout` 用同一套事件与评测口径，去验证底座能否支撑一个**有明确业务闭环**的 Agent
+（拆解问题 → 采集证据 → 带引用写作 → 自检 → 人工审批），同时补上 LangGraph 编排、Playwright 采集与 Langfuse 观测。
+
 ## 怎么运行这里的旧版本
 
-两个目录各自保留当时的依赖说明（`requirements.txt` / `pyproject.toml`），
+各目录保留当时的依赖说明（`requirements.txt` / `pyproject.toml`），
 但旧版依赖的 API Key（`.env`）、Chroma 数据目录、模型缓存都不在仓库内，
-且 `core/config.py` 只从环境变量读取 Key（无硬编码），因此**不建议直接运行**，只作为代码演进证据阅读。
+`core/config.py` 只从环境变量读取 Key（无硬编码），因此**不建议直接运行**，只作为代码演进证据阅读。

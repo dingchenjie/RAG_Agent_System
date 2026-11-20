@@ -11,6 +11,7 @@ env/
 # 环境与密钥 (防止 API Key 泄露)
 .env
 archive/rag-agent-v1/core/config.py
+rag-agent-v1/core/config.py
 
 # 本地数据与模型缓存 (防止上传大文件和数据库)
 chroma_db/
@@ -36,3 +37,9 @@ archive/**/.pytest_cache/
 
 # 面试话术不进公开仓库（含归档副本）
 archive/**/docs/INTERVIEW_QA.md
+
+# Word 临时锁文件与覆盖率产物
+~$*.docx
+.coverage
+htmlcov/
+
