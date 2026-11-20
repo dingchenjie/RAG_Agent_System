@@ -1,0 +1,129 @@
+# Langfuse 自托管（v3 精简拓扑）：web + worker + postgres + clickhouse + redis + minio
+# 用法：docker compose -f docker-compose.langfuse.yml up -d
+# 默认地址 http://localhost:3000 ，首次进入注册的账号即可生成 API Key。
+services:
+  langfuse-web:
+    image: langfuse/langfuse:3
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment: &langfuse-env
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: dev-nextauth-secret-change-me
+      SALT: dev-salt-change-me
+      ENCRYPTION_KEY: d8311c0dc2fd90905df6b202f74341c83de02773251cf9f845d2755572518ec7
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_DB: default
+      # 单机 ClickHouse 没有 Zookeeper，必须关掉集群模式，否则迁移会用 ON CLUSTER 建表
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_INIT_ORG_ID: demo
+      LANGFUSE_INIT_ORG_NAME: market-scout
+      LANGFUSE_INIT_PROJECT_ID: market-scout
+      LANGFUSE_INIT_PROJECT_NAME: market-scout
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-market-scout
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-market-scout
+      LANGFUSE_INIT_USER_EMAIL: demo@example.com
+      LANGFUSE_INIT_USER_NAME: demo
+      LANGFUSE_INIT_USER_PASSWORD: demo1234
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    restart: unless-stopped
+    depends_on:
+      - langfuse-web
+    environment:
+      <<: *langfuse-env
+      PORT: 3030
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - langfuse_pg:/var/lib/postgresql/data
+
+  clickhouse:
+    image: clickhouse/clickhouse-server
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - langfuse_ch:/var/lib/clickhouse
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    # 官方 minio/minio 镜像已从 Docker Hub 下架；本地可用 bitnamilegacy/minio 打同名 tag：
+    #   docker pull docker.1ms.run/bitnamilegacy/minio:latest
+    #   docker tag  docker.1ms.run/bitnamilegacy/minio:latest minio/minio:latest
+    image: minio/minio:latest
+    restart: unless-stopped
+    # bitnamilegacy 替代镜像默认以 1001 运行，匿名命名卷属主是 root，会报 file access denied
+    user: "0"
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniosecret
+      MINIO_DEFAULT_BUCKETS: langfuse
+    ports:
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - langfuse_minio:/data
+
+volumes:
+  langfuse_pg:
+  langfuse_ch:
+  langfuse_minio:

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>market-scout · 竞品调研 Agent</title>
+<style>
+  :root { --bg:#0f1115; --card:#171a21; --line:#262b36; --text:#e6e8ee; --muted:#98a2b3;
+          --accent:#4f8cff; --ok:#3ddc97; --warn:#ffb020; --err:#ff6b6b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.65 "Microsoft YaHei","PingFang SC",system-ui,sans-serif; }
+  header { padding:20px 28px; border-bottom:1px solid var(--line); display:flex; gap:14px; align-items:baseline; }
+  header h1 { font-size:17px; margin:0; letter-spacing:.4px; }
+  header span { color:var(--muted); font-size:12px; }
+  main { max-width:1080px; margin:0 auto; padding:24px; display:grid; gap:18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; }
+  .row { display:flex; gap:10px; }
+  input[type=text] { flex:1; background:#0d1016; color:var(--text); border:1px solid var(--line);
+                     border-radius:9px; padding:11px 13px; outline:none; }
+  input[type=text]:focus { border-color:var(--accent); }
+  button { background:var(--accent); color:#fff; border:0; border-radius:9px; padding:11px 18px;
+           cursor:pointer; font-weight:600; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .chips { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  .chip { border:1px solid var(--line); color:var(--muted); border-radius:20px; padding:5px 11px;
+          font-size:12px; cursor:pointer; }
+  .chip:hover { color:var(--text); border-color:var(--accent); }
+  .meta { color:var(--muted); font-size:12px; margin-bottom:10px; }
+  #log { font-family:Consolas,Menlo,monospace; font-size:12.5px; max-height:300px; overflow:auto; }
+  .ev { padding:3px 0; border-bottom:1px dashed #1f2430; }
+  .ev b { color:var(--accent); font-weight:600; }
+  .ev.loop b { color:var(--warn); } .ev.err b { color:var(--err); } .ev.ok b { color:var(--ok); }
+  .ev small { color:var(--muted); }
+  #report { white-space:pre-wrap; word-break:break-word; }
+  #report h2 { font-size:15px; margin:18px 0 8px; color:#fff; }
+  #report h3 { font-size:13.5px; margin:14px 0 6px; color:#dbe3f5; }
+  .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:10px;
+           border:1px solid var(--line); color:var(--muted); margin-left:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>market-scout</h1>
+  <span>LangGraph · ReAct · Multi-Agent · Browser Use · MCP · Langfuse</span>
+</header>
+<main>
+  <section class="card">
+    <div class="row">
+      <input id="q" type="text" value="对比 Acme CRM 与 Beta CRM 的定价与核心功能，给出选型建议" />
+      <button id="go">开始调研</button>
+    </div>
+    <div class="chips">
+      <span class="chip" data-q="对比 Acme CRM 与 Beta CRM 的定价与核心功能，给出选型建议">竞品对比</span>
+      <span class="chip" data-q="Acme CRM 的定价是什么？">反应式单问</span>
+      <span class="chip" data-q="调研 Beta CRM 的核心功能和目标用户，输出报告">深度调研</span>
+    </div>
+    <div class="meta" id="meta" style="margin-top:12px">离线演示请用 mock；真实抓取需设置 SCOUT_LLM_PROVIDER=openai 与 Key。</div>
+  </section>
+
+  <section class="card">
+    <div class="meta">执行事件（SSE 实时）<span class="badge" id="status">idle</span></div>
+    <div id="log"></div>
+  </section>
+
+  <section class="card">
+    <div class="meta">调研报告</div>
+    <div id="report">等待执行…</div>
+  </section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+let es = null;
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function mdToHtml(md) {
+  return esc(md)
+    .replace(/^### (.*)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
+function addEvent(ev) {
+  const div = document.createElement('div');
+  const type = ev.type || '';
+  div.className = 'ev' + (type.startsWith('loop') ? ' loop' : type === 'run.finished' ? ' ok' : type === 'run.error' ? ' err' : '');
+  const data = JSON.stringify(ev.data || {});
+  div.innerHTML = `<b>${esc(type)}</b> <small>${esc(data.slice(0, 220))}</small>`;
+  const log = $('#log');
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function poll(runId) {
+  es = new EventSource(`/api/runs/${runId}/stream`);
+  es.onmessage = async (msg) => {
+    const ev = JSON.parse(msg.data);
+    if (ev.type === 'run.closed') {
+      $('#status').textContent = ev.data.status;
+      es.close(); es = null;
+      const res = await fetch(`/api/runs/${runId}/report`);
+      if (res.ok) { const body = await res.json(); $('#report').innerHTML = mdToHtml(body.report); }
+      return;
+    }
+    addEvent(ev);
+  };
+  es.onerror = () => { if (es) { es.close(); es = null; } };
+}
+
+$('#go').onclick = async () => {
+  const question = $('#q').value.trim();
+  if (!question) return;
+  if (es) { es.close(); es = null; }
+  $('#log').innerHTML = ''; $('#report').textContent = '执行中…'; $('#status').textContent = 'running';
+  $('#go').disabled = true;
+  try {
+    const resp = await fetch('/api/runs', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ question }) });
+    const data = await resp.json();
+    $('#meta').textContent = `run_id: ${data.run_id}`;
+    poll(data.run_id);
+  } catch (e) {
+    $('#report').textContent = '提交失败：' + e;
+  } finally {
+    $('#go').disabled = false;
+  }
+};
+
+document.querySelectorAll('.chip').forEach(c => c.onclick = () => { $('#q').value = c.dataset.q; });
+</script>
+</body>
+</html>

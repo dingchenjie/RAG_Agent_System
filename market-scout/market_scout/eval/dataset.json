@@ -1,0 +1,18 @@
+[
+  {"id": "pricing_acme", "question": "Acme CRM 的定价是多少？", "expected_tools": ["search_evidence"],
+   "keywords": ["12", "29"], "type": "single_fact"},
+  {"id": "pricing_beta", "question": "Beta CRM 每月多少钱？", "expected_tools": ["search_evidence"],
+   "keywords": ["25", "49"], "type": "single_fact"},
+  {"id": "feature_acme", "question": "Acme CRM 有哪些核心功能？", "expected_tools": ["search_evidence"],
+   "keywords": ["自动化", "API"], "type": "single_fact"},
+  {"id": "position_beta", "question": "Beta CRM 的目标客户是谁？", "expected_tools": ["search_evidence"],
+   "keywords": ["销售", "AI"], "type": "single_fact"},
+  {"id": "compare_overview", "question": "对比 Acme CRM 与 Beta CRM 的定价与核心功能，给出选型建议",
+   "expected_tools": ["search_evidence"], "keywords": ["Acme", "Beta"], "type": "comparison"},
+  {"id": "compare_position", "question": "调研 Acme CRM 与 Beta CRM 的目标用户差异",
+   "expected_tools": ["search_evidence"], "keywords": ["中小", "扩张"], "type": "comparison"},
+  {"id": "weakness", "question": "Beta CRM 有哪些弱点？", "expected_tools": ["search_evidence"],
+   "keywords": ["本地化", "英语"], "type": "analysis"},
+  {"id": "unknown_vendor", "question": "Gamma CRM 的定价和功能怎么样？", "expected_tools": ["search_evidence"],
+   "keywords": ["未找到"], "type": "abstain"}
+]
