@@ -1,12 +1,12 @@
 """向量化实现与工厂。
 
 默认使用确定性哈希向量（零依赖、离线可跑、结果可复现），
-生产可替换成语义模型（sentence-transformers / 智谱 embedding）：
+生产可替换成语义模型（sentence-transformers / 云端 embedding）：
 
 - ``hashing``：零依赖，测试与演示的默认路径；
 - ``sentence-transformers``：本地 bge 模型，``pip install -e ".[semantic]"`` 后自动启用；
-- ``zhipu``：走 OpenAI 兼容的 ``/embeddings`` 接口，需要 ``ZHIPU_API_KEY``；
-- ``auto``：按"显式配置 > 本地语义模型 > 智谱 Key > 哈希"选择，保证任何环境都能跑。
+- ``openai``：走 OpenAI 兼容的 ``/embeddings`` 接口，需要 API Key 与 base_url；
+- ``auto``：按"显式配置 > 本地语义模型 > 云端 Key > 哈希"选择，保证任何环境都能跑。
 """
 from __future__ import annotations
 
@@ -23,6 +23,10 @@ from ..errors import HermesError
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 _WORD_RE = re.compile(r"[a-z0-9_]+")
+
+
+# 权重按模型名进程内复用：run_eval 会多次 build_state，不缓存就会反复加载语义模型
+_EMBEDDER_CACHE: dict[str, object] = {}
 
 
 class Embedder(Protocol):
@@ -65,16 +69,18 @@ class HashingEmbedder:
         return [v / norm for v in vec]
 
 
-class ZhipuEmbedder:
-    """智谱 embedding（OpenAI 兼容协议），批量 16、超时 20s、429/5xx 退避重试。"""
+class OpenAICompatEmbedder:
+    """OpenAI 兼容的 ``/embeddings`` 客户端，批量 16、超时 20s、429/5xx 退避重试。"""
 
-    name = "zhipu"
+    name = "openai"
 
     def __init__(self, *, api_key: str, model: str = "embedding-3", dim: int = 0,
-                 base_url: str = "https://open.bigmodel.cn/api/paas/v4", timeout_s: float = 20.0,
-                 batch_size: int = 16):
+                 base_url: str = "", timeout_s: float = 20.0, batch_size: int = 16):
         if not api_key:
-            raise HermesError("缺少 ZHIPU_API_KEY，无法使用智谱 embedding", code="missing_credential")
+            raise HermesError("缺少 API Key（HERMES_LLM_API_KEY 或 OPENAI_API_KEY），无法使用云端 embedding",
+                              code="missing_credential")
+        if not base_url:
+            raise HermesError("使用云端 embedding 时必须提供 base_url", code="invalid_config")
         self.api_key = api_key
         self.model = model
         # dim=0 表示"由服务端返回决定"，首次调用后回填
@@ -133,14 +139,18 @@ class SentenceTransformerEmbedder:
     def _load(self):
         if self._model is not None:
             return self._model
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as exc:
-            raise HermesError(
-                "未安装 sentence-transformers，请执行 pip install -e \".[semantic]\"",
-                code="missing_dependency") from exc
-        self._model = SentenceTransformer(self.model_name)
-        self.dim = int(self._model.get_sentence_embedding_dimension())
+        cached = _EMBEDDER_CACHE.get(self.model_name)
+        if cached is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as exc:
+                raise HermesError(
+                    "未安装 sentence-transformers，请执行 pip install -e \".[semantic]\"",
+                    code="missing_dependency") from exc
+            cached = SentenceTransformer(self.model_name)
+            _EMBEDDER_CACHE[self.model_name] = cached
+        self._model = cached
+        self.dim = int(cached.get_sentence_embedding_dimension())
         return self._model
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -160,10 +170,11 @@ def build_embedder(
     api_key: str = "",
     model: str = "",
     api_model: str = "",
+    base_url: str = "",
 ) -> Embedder:
     """按配置构建 embedder；``auto`` 永远能返回一个可用实现，不因缺依赖而启动失败。
 
-    ``model`` 是本地语义模型（bge），``api_model`` 是云端 provider 的模型名（智谱 embedding-3）——
+    ``model`` 是本地语义模型（bge），``api_model`` 是云端 provider 的模型名（如 embedding-3）——
     两者不能混用，否则会把 HuggingFace 仓库名发给云端 API 换回 400。
     """
     kind = (kind or "auto").strip().lower()
@@ -171,7 +182,7 @@ def build_embedder(
         if _available("sentence_transformers"):
             kind = "sentence-transformers"
         elif api_key:
-            kind = "zhipu"
+            kind = "openai"
         else:
             kind = "hashing"
 
@@ -179,8 +190,9 @@ def build_embedder(
         return HashingEmbedder(dim)
     if kind == "sentence-transformers":
         return SentenceTransformerEmbedder(model or "BAAI/bge-small-zh-v1.5")
-    if kind == "zhipu":
-        return ZhipuEmbedder(api_key=api_key, model=api_model or "embedding-3")
+    if kind in ("openai", "zhipu"):   # zhipu 为旧配置值，等价于 openai
+        return OpenAICompatEmbedder(api_key=api_key, model=api_model or "embedding-3",
+                                    base_url=base_url)
     raise HermesError(f"未知的 embedding 后端：{kind}", code="invalid_config")
 
 

@@ -1,4 +1,8 @@
-"""智谱开放平台适配（OpenAI 兼容协议，直接用 httpx，不引入厂商 SDK）。"""
+"""OpenAI 兼容协议适配：任何提供 /chat/completions 与 /embeddings 的服务都能接。
+
+不绑定具体厂商：base_url 与 model 全部来自配置（智谱、agicto、OpenAI、DeepSeek、
+vLLM、OneAPI 等只是不同的 base_url），直接用 httpx，不引入厂商 SDK。
+"""
 from __future__ import annotations
 
 import httpx
@@ -8,13 +12,14 @@ from ..types import Message, ToolCall, Usage
 from .base import LLMProvider, LLMResponse, parse_arguments
 
 
-class ZhipuLLM(LLMProvider):
-    name = "zhipu"
+class OpenAICompatLLM(LLMProvider):
+    name = "openai"
 
     def __init__(self, *, api_key: str, model: str, base_url: str, timeout_s: float = 60.0,
                  embed_model: str = "embedding-3"):
         if not api_key:
-            raise LLMError("未配置 ZHIPU_API_KEY，无法使用真实模型；可设置 HERMES_LLM_PROVIDER=mock")
+            raise LLMError("未配置 API Key（HERMES_LLM_API_KEY 或 OPENAI_API_KEY），"
+                           "无法使用真实模型；可设置 HERMES_LLM_PROVIDER=mock")
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
@@ -52,8 +57,17 @@ class ZhipuLLM(LLMProvider):
             raise LLMError(f"网络错误: {exc}", retryable=True) from exc
 
         if resp.status_code >= 400:
-            retryable = resp.status_code == 429 or resp.status_code >= 500
-            raise LLMError(f"模型返回 {resp.status_code}: {resp.text[:300]}", retryable=retryable)
+            body = resp.text[:300]
+            # 网关常把"模型名不存在/未开通"报成 500，按可重试处理会白白重试并触发熔断
+            config_hint = any(k in resp.text.lower() for k in (
+                "not supported", "not found", "does not exist", "invalid model", "unknown model",
+                "model names are", "supported api model", "model_not_found",
+                "不支持", "不存在", "未开通"))
+            if config_hint or resp.status_code in (400, 401, 403, 404):
+                raise LLMError(f"模型调用被拒绝（配置类错误，不重试）：{body}",
+                               code="llm_config_error", retryable=False)
+            raise LLMError(f"模型返回 {resp.status_code}: {body}",
+                           retryable=resp.status_code == 429 or resp.status_code >= 500)
 
         data = resp.json()
         choice = (data.get("choices") or [{}])[0]

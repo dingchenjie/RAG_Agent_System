@@ -93,7 +93,8 @@ class ResilientLLM(LLMProvider):
             except LLMError as exc:
                 last_error = exc
                 if not exc.retryable:
-                    self.breaker.record_failure()
+                    # 配置类/确定性错误（模型名不存在、鉴权失败）不计入熔断：
+                    # 一次写错模型名不该让后续所有请求都被阻断
                     raise
             except asyncio.CancelledError:
                 raise

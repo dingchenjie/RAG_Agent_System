@@ -18,10 +18,10 @@ def test_hashing_embedder_is_normalized():
     assert math.isclose(sum(value * value for value in vector), 1.0, rel_tol=1e-6)
 
 
-def test_auto_falls_back_to_hashing_then_zhipu(monkeypatch):
+def test_auto_falls_back_to_hashing_then_openai(monkeypatch):
     monkeypatch.setattr(embedding_module, "_available", lambda module: False)
     assert build_embedder("auto").name == "hashing"
-    assert build_embedder("auto", api_key="test-key").name == "zhipu"
+    assert build_embedder("auto", api_key="test-key", base_url="https://example.com/v1").name == "openai"
 
 
 def test_unknown_backend_is_rejected():

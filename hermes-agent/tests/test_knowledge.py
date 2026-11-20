@@ -65,15 +65,16 @@ def test_chunking_keeps_sentence_boundaries():
     assert all(len(c) <= 260 for c in chunks)
 
 
-def test_zhipu_embedder_uses_api_model_not_local_repo_name():
+def test_openai_embedder_uses_api_model_not_local_repo_name():
     """本地 bge 仓库名不能被当成云端 embedding 的 model（真实 400 的根因）。"""
     from hermes.knowledge.embedding import build_embedder
 
     embedder = build_embedder(
-        "zhipu", api_key="fake-key",
+        "openai", api_key="fake-key",
         model="BAAI/bge-small-zh-v1.5", api_model="embedding-3",
+        base_url="https://example.com/v1",
     )
-    assert embedder.name == "zhipu"
+    assert embedder.name == "openai"
     assert embedder.model == "embedding-3"
 
 

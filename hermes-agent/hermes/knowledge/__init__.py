@@ -1,8 +1,8 @@
 from .embedding import (
     Embedder,
     HashingEmbedder,
+    OpenAICompatEmbedder,
     SentenceTransformerEmbedder,
-    ZhipuEmbedder,
     build_embedder,
     cosine,
     tokenize,
@@ -14,7 +14,7 @@ from .service import KnowledgeService
 from .splitter import dedupe, split_text
 
 __all__ = [
-    "Embedder", "HashingEmbedder", "SentenceTransformerEmbedder", "ZhipuEmbedder",
+    "Embedder", "HashingEmbedder", "SentenceTransformerEmbedder", "OpenAICompatEmbedder",
     "build_embedder", "cosine", "tokenize",
     "Hit", "IngestReport", "KnowledgeIndex", "chunk_text",
     "Document", "load_document",

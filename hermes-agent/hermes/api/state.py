@@ -17,8 +17,8 @@ from ..knowledge.service import KnowledgeService
 from ..learning.lessons import LessonService
 from ..llm.base import LLMProvider
 from ..llm.mock import MockLLM
+from ..llm.openai_compat import OpenAICompatLLM
 from ..llm.resilience import CircuitBreaker, ResilientLLM
-from ..llm.zhipu import ZhipuLLM
 from ..memory.extractor import build_memory_extractor
 from ..memory.service import MemoryService
 from ..observability.events import EventBus, EventStore
@@ -62,9 +62,9 @@ class AppState:
 def build_llm(settings: Settings, override: LLMProvider | None = None) -> LLMProvider:
     if override is not None:
         return override
-    if settings.llm_provider == "zhipu":
-        return ZhipuLLM(api_key=settings.llm_api_key, model=settings.llm_model,
-                        base_url=settings.llm_base_url, timeout_s=settings.llm_timeout_s)
+    if settings.llm_provider in ("openai", "zhipu"):
+        return OpenAICompatLLM(api_key=settings.llm_api_key, model=settings.llm_model,
+                               base_url=settings.llm_base_url, timeout_s=settings.llm_timeout_s)
     return MockLLM(delay_s=settings.mock_delay_s)
 
 
@@ -79,7 +79,7 @@ def build_state(settings: Settings, llm_provider: LLMProvider | None = None) -> 
     embedder = build_embedder(
         settings.embedding_backend, dim=settings.embedding_dim,
         api_key=settings.llm_api_key, model=settings.embedding_model,
-        api_model=settings.embedding_api_model,
+        api_model=settings.embedding_api_model, base_url=settings.llm_base_url,
     )
     # 记忆抽取可能用同一个 LLM，因此在 MemoryService 之前构建（带重试/熔断）
     base_llm = build_llm(settings, llm_provider)

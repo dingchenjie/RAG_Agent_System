@@ -229,7 +229,7 @@ def _run_retrieval(base: Settings) -> dict:
 
 def _run_retrieval_ab(base: Settings, primary: dict) -> dict | None:
     """对比 hashing 与当前 embedding 后端；后端不可用时跳过而不是中断评测。"""
-    alt_backend = "hashing" if base.embedding_backend != "hashing" else "zhipu"
+    alt_backend = "hashing" if base.embedding_backend != "hashing" else "openai"
     if alt_backend == base.embedding_backend:
         return None
     try:

@@ -1,7 +1,7 @@
 from .base import LLMProvider, LLMResponse, parse_arguments
 from .mock import FailingLLM, MockLLM
+from .openai_compat import OpenAICompatLLM
 from .resilience import CircuitBreaker, ResilientLLM
-from .zhipu import ZhipuLLM
 
 __all__ = [
     "LLMProvider",
@@ -11,5 +11,5 @@ __all__ = [
     "FailingLLM",
     "ResilientLLM",
     "CircuitBreaker",
-    "ZhipuLLM",
+    "OpenAICompatLLM",
 ]

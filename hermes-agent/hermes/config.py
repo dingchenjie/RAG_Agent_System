@@ -47,7 +47,7 @@ class Settings:
     max_run_cost_usd: float = 0.5
 
     # LLM
-    llm_provider: str = "mock"           # mock | zhipu
+    llm_provider: str = "mock"           # mock | openai（任何 OpenAI 兼容服务，zhipu 为旧值等价）
     llm_model: str = "glm-4-air"
     llm_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     llm_api_key: str = ""
@@ -70,9 +70,9 @@ class Settings:
     recall_k: int = 12
     rerank_top_k: int = 4
     embedding_dim: int = 384
-    embedding_backend: str = "hashing"    # hashing | zhipu | sentence-transformers | auto（auto 需显式开启）
+    embedding_backend: str = "hashing"    # hashing | openai | sentence-transformers | auto（auto 需显式开启）
     embedding_model: str = "BAAI/bge-small-zh-v1.5"   # 本地语义模型（sentence-transformers）
-    embedding_api_model: str = "embedding-3"          # 云端 embedding 的模型名（智谱）
+    embedding_api_model: str = "embedding-3"          # 云端 embedding 的模型名
     rerank_backend: str = "auto"          # rrf | cross-encoder | auto
     rerank_model: str = "BAAI/bge-reranker-base"
     dedupe_threshold: float = 0.92        # 分块去冗余的余弦阈值，<=0 关闭
@@ -127,7 +127,8 @@ class Settings:
             llm_provider=_env_str("HERMES_LLM_PROVIDER", "mock"),
             llm_model=_env_str("HERMES_LLM_MODEL", "glm-4-air"),
             llm_base_url=_env_str("HERMES_LLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
-            llm_api_key=_env_str("ZHIPU_API_KEY", _env_str("HERMES_LLM_API_KEY", "")),
+            llm_api_key=_env_str("HERMES_LLM_API_KEY",
+                                 _env_str("OPENAI_API_KEY", _env_str("ZHIPU_API_KEY", ""))),
             llm_timeout_s=_env_float("HERMES_LLM_TIMEOUT_S", 60.0),
             llm_max_retries=_env_int("HERMES_LLM_MAX_RETRIES", 3),
             mock_delay_s=_env_float("HERMES_MOCK_DELAY_S", 0.0),
